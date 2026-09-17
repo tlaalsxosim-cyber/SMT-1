@@ -235,8 +235,11 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
       });
     }
     const columnRaw = timeColumnList[0] ?? null;
+    const memoList = [...b.memos];
+    // 비고(건)은 1순위 시간 소스다 (OI-3 확정) — 그룹 내 첫 값을 대표로 쓴다
+    const remarkRaw = memoList[0] ?? null;
 
-    const time = resolveTime(columnRaw, parsedName.conditionText);
+    const time = resolveTime(columnRaw, parsedName.conditionText, remarkRaw);
 
     const windowError = validateWindows(time.windows);
     if (windowError) {
@@ -245,12 +248,11 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
         code: "FR-17",
         message: `시간창 형식 오류로 배차에 반영하지 않습니다 — ${windowError}`,
         subject: parsedName.company,
-        detail: `컬럼 "${columnRaw ?? ""}" / 원문 "${parsedName.conditionText}"`,
+        detail: `컬럼 "${columnRaw ?? ""}" / 원문 "${parsedName.conditionText}" / 비고 "${remarkRaw ?? ""}"`,
       });
       time.windows = [];
     }
 
-    const memoList = [...b.memos];
     const detailList = [...b.memoDetails];
     const tags = extractTags(parsedName.conditionText, ...memoList, ...detailList);
     const maxTonnage = extractTonnageLimit(parsedName.conditionText, ...memoList);
@@ -307,12 +309,12 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
       });
     }
 
-    // 시간창 불일치 (§5.3-(1))
+    // 시간창 불일치 — 비고(건) > 납품처명 > 납품시간 컬럼 순으로 채택 (§5.3-(1) / OI-3)
     if (time.mismatch === "boundary") {
       issues.push({
         level: "warning",
         code: "FR-11",
-        message: "납품시간 컬럼과 납품처명 원문의 시간 경계가 다릅니다",
+        message: "시간창 소스 간 경계가 달라 우선순위대로 채택했습니다",
         subject: parsedName.company,
         detail: time.note,
       });
@@ -320,7 +322,7 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
       issues.push({
         level: "warning",
         code: "FR-11",
-        message: "납품시간 컬럼이 비어 있어 납품처명에서 시간창을 회수했습니다",
+        message: "납품시간 컬럼이 비어 있어 다른 소스에서 시간창을 회수했습니다",
         subject: parsedName.company,
         detail: time.note,
       });
@@ -328,7 +330,7 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
       issues.push({
         level: "info",
         code: "FR-12",
-        message: "납품처명 원문에서 배제 구간을 찾아 시간창을 분리했습니다",
+        message: "다른 소스에서 배제 구간을 찾아 시간창을 분리했습니다",
         subject: parsedName.company,
         detail: time.note,
       });

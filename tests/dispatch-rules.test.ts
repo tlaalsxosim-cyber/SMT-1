@@ -47,6 +47,8 @@ function point(
       fromColumn: [],
       nameRaw: "",
       fromName: [],
+      remarkRaw: null,
+      fromRemark: [],
       conflict: false,
       mismatch: "none",
       advisory: false,

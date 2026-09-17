@@ -135,7 +135,11 @@ export interface TimeWindowResolution {
   nameRaw: string;
   /** 납품처명을 해석한 시간창 */
   fromName: TimeWindow[];
-  /** 두 소스가 어긋나면 true — 담당자 확인 목록으로 (§5.3-(1)) */
+  /** 비고(건) 원문 (그룹 내 첫 값) */
+  remarkRaw: string | null;
+  /** 비고(건)을 해석한 시간창 */
+  fromRemark: TimeWindow[];
+  /** 소스가 어긋나면 true — 담당자 확인 목록으로 (§5.3-(1)) */
   conflict: boolean;
   /**
    * 불일치 유형
@@ -155,7 +159,7 @@ export interface TimeWindowResolution {
    */
   hasExplicitStart: boolean;
   /** 어느 소스를 채택했는지 */
-  adopted: "column" | "name" | "both" | "none";
+  adopted: "remark" | "column" | "name" | "both" | "none";
   /** 채택 근거 설명 (화면·엑셀에 원문과 함께 표시) */
   note: string;
 }

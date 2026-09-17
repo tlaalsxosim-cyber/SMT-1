@@ -85,9 +85,9 @@ describe("AC-04 시간창 구조화", () => {
     expect(withColumn).toHaveLength(41);
   });
 
-  it("AI/규칙 회수 후 최종 시간창 45곳", () => {
+  it("AI/규칙 회수 후 최종 시간창 46곳 (비고(건) 1순위 반영, OI-3 확정)", () => {
     const withWindow = ship.points.filter((p) => p.time.windows.length > 0);
-    expect(withWindow).toHaveLength(45);
+    expect(withWindow).toHaveLength(46);
   });
 
   it("불일치 6건 — 경계 불일치 2 + 컬럼 결손 4", () => {
@@ -114,6 +114,18 @@ describe("AC-05 지케이(광주새말길) 시간창", () => {
     expect(p!.time.columnRaw).toBe("8:00~17:00");
     expect(formatWindows(p!.time.windows)).toBe("08:00~12:30, 13:30~15:00");
     expect(p!.time.adopted).toBe("name");
+  });
+});
+
+describe("AC-05b 에이치케이푸드 — 비고(건) 1순위 회수 (OI-3 확정 2026-09-17)", () => {
+  it("컬럼·납품처명 모두 없어 비고(건) '11시전'에서 08:00~11:00을 회수", () => {
+    const p = find("에이치케이푸드");
+    expect(p).toBeDefined();
+    expect(p!.time.columnRaw).toBeNull();
+    expect(p!.time.fromName).toHaveLength(0);
+    expect(p!.time.remarkRaw).toContain("11시전");
+    expect(formatWindows(p!.time.windows)).toBe("08:00~11:00");
+    expect(p!.time.adopted).toBe("remark");
   });
 });
 

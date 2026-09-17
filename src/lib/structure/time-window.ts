@@ -207,6 +207,15 @@ function parseSegment(segRaw: string): SegmentResult {
     return none;
   }
 
+  /**
+   * `1시이후`처럼 "이후"가 붙으면 마감이 아니라 **시작 시각**이다.
+   * 이 구분이 없으면 "이후"를 "전"과 똑같이 마감으로 읽어 정반대로 해석한다
+   * (비고(건) 실데이터: 천지농산 "1시이후도착요청"이 "~13:00"으로 뒤집혀 나왔다).
+   */
+  if (/이후/.test(seg)) {
+    return { windows: [{ start: resolveDeadline(t), end: 18 * 60 }], explicitStart: true };
+  }
+
   // `13시30분전` `10시` `13시착` — 단독 시각은 마감으로 해석
   return { windows: deadlineWindow(resolveDeadline(t)), explicitStart: false };
 }
@@ -250,6 +259,34 @@ export function mergeWindows(windows: TimeWindow[]): TimeWindow[] {
     else out.push({ ...w });
   }
   return out;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 비고(건) 시간 표현 추출
+// ─────────────────────────────────────────────────────────────
+
+/** `12시~2시`, `11~14시` 처럼 시각이 시:분/시 단위로 양쪽에 있는 범위 */
+const REMARK_TIME_RANGE = /\d{1,2}(?::\d{2})?\s*시?\s*~\s*\d{1,2}(?::\d{2})?\s*시?/;
+/** `11시전`, `1시이후`, `13:00` 처럼 시각 하나 + 선택적 전/후 표현 */
+const REMARK_TIME_SINGLE = /\d{1,2}\s*(?::\d{2}|시\s*(?:\d{1,2}\s*분)?)\s*(?:이전|이후|전|후)?/;
+
+/**
+ * 비고(건, AH열)은 담당자가 손으로 적는 자유 텍스트라 전화번호·계좌번호·박스 수량 등
+ * 시간과 무관한 숫자가 섞여 있다. `parseTimeText`를 통째로 돌리면 이런 숫자가
+ * 시간 토큰으로 오탐된다 — 예: 전화번호 `010-5290-1220`의 하이픈이 범위 구분자로,
+ * 박스 수 `200`이 `00`시로 잘못 읽힌다.
+ *
+ * 그래서 진짜 시간 표현처럼 보이는 조각(시·분·전·후 등 명확한 표지가 붙은 부분)만
+ * 정규식으로 도려내 그 조각만 파싱한다. 표지가 없으면 시간 정보가 없는 것으로 본다.
+ */
+export function extractRemarkTimePhrase(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const normalized = normalizeTimeText(raw);
+  const range = REMARK_TIME_RANGE.exec(normalized);
+  if (range) return range[0];
+  const single = REMARK_TIME_SINGLE.exec(normalized);
+  if (single) return single[0];
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -28,10 +28,12 @@ export interface PreviewPoint {
   address: string;
   cleanAddress: string;
   boxes: number;
-  /** 납품시간 컬럼 원문 */
+  /** 납품시간 컬럼 원문 (3순위) */
   columnRaw: string | null;
-  /** 납품처명 조건 텍스트 원문 */
+  /** 납품처명 조건 텍스트 원문 (2순위) */
   conditionText: string;
+  /** 비고(건) 원문 (1순위) */
+  remarkRaw: string | null;
   /** 해석된 시간창 */
   windows: TimeWindow[];
   windowsText: string;

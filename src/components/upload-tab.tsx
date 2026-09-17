@@ -301,7 +301,8 @@ function PreviewPanel({ preview }: { preview: ParseResponse }) {
             <CardHeader>
               <CardTitle className="text-base">원문과 해석 대조</CardTitle>
               <CardDescription>
-                납품시간 컬럼과 납품처명 원문을 함께 해석해 더 엄격한 쪽을 채택합니다 (FR-11).
+                비고(건) → 납품처명 → 납품시간 컬럼 순으로 우선순위를 두어 해석합니다 (FR-11 / OI-3).
+                비고(건)·납품처명 모두 시간 정보가 없을 때만 컬럼을 3순위 보조값으로 씁니다.
                 경계가 어긋난 건은 빨간색, 점심 등 배제 구간을 찾아낸 건은 파란색입니다.
               </CardDescription>
             </CardHeader>
@@ -340,6 +341,7 @@ function PreviewPanel({ preview }: { preview: ParseResponse }) {
                 <div key={p.id} className="rounded-md border p-3 text-sm">
                   <div className="font-medium">{p.company}</div>
                   <div className="mt-1 grid gap-0.5 text-xs text-muted-foreground">
+                    <div>비고(건) · {p.remarkRaw ?? "(비어있음)"}</div>
                     <div>원문 · {p.conditionText || "(없음)"}</div>
                     <div>컬럼 · {p.columnRaw ?? "(비어있음)"}</div>
                     <div className="text-foreground">채택 · {p.windowsText}</div>
@@ -492,8 +494,9 @@ function ConditionRow({ p }: { p: PreviewPoint }) {
       </TableCell>
       <TableCell className="text-right tabular-nums">{n(p.boxes)}</TableCell>
       <TableCell className="text-xs">
-        <div className="text-muted-foreground">컬럼 · {p.columnRaw ?? "(비어있음)"}</div>
+        <div className="text-muted-foreground">비고(건) · {p.remarkRaw ?? "(비어있음)"}</div>
         <div className="text-muted-foreground">원문 · {p.conditionText || "(없음)"}</div>
+        <div className="text-muted-foreground">컬럼 · {p.columnRaw ?? "(비어있음)"}</div>
       </TableCell>
       <TableCell>
         <div className="font-mono text-xs">{p.windowsText}</div>

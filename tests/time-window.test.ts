@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractRemarkTimePhrase,
   formatWindows,
   isWithin,
   parseTimeText,
@@ -221,6 +222,61 @@ describe("두 소스 대조·병합 (FR-11)", () => {
     const r = resolveTime(null, "창고안적재(비대면)");
     expect(r.windows).toHaveLength(0);
     expect(r.adopted).toBe("none");
+  });
+});
+
+describe("비고(건) 1순위 반영 (OI-3 확정 2026-09-17)", () => {
+  it("컬럼·납품처명 둘 다 없으면 비고(건)에서 회수한다", () => {
+    const r = resolveTime(null, "", "ok/52박스/11시전/우리은행1005803924422");
+    expect(r.adopted).toBe("remark");
+    expect(formatWindows(r.windows)).toBe("08:00~11:00");
+  });
+
+  it("비고(건)이 컬럼·납품처명과 다르면 비고(건)을 무조건 채택한다", () => {
+    // 천지농산 — 컬럼/원문은 12시 전, 비고(건)은 1시 이후로 정반대다
+    const r = resolveTime("~12:00", "오전12시전", "50박스/1시이후도착요청");
+    expect(r.adopted).toBe("remark");
+    expect(r.mismatch).toBe("boundary");
+    expect(r.conflict).toBe(true);
+    expect(formatWindows(r.windows)).toBe("13:00~18:00");
+  });
+
+  it("비고(건)이 컬럼·납품처명과 같으면 일치로 본다", () => {
+    const r = resolveTime("~10:00", "10시전", "ok/32박스/10시전도착");
+    expect(r.mismatch).toBe("none");
+    expect(r.conflict).toBe(false);
+    expect(r.adopted).toBe("remark");
+  });
+
+  it("비고(건)에 시간 표현이 없으면 기존 컬럼·납품처명 결과를 그대로 쓴다", () => {
+    const r = resolveTime("8:00~17:00", "8~15시(12시30분~13시30분제외)", "ok/64박스");
+    expect(r.adopted).toBe("name");
+    expect(formatWindows(r.windows)).toBe("08:00~12:30, 13:30~15:00");
+  });
+
+  it("전화번호·계좌번호·박스 수량은 시간 표현으로 오인하지 않는다", () => {
+    for (const noise of [
+      "ok/200박스",
+      "740박스/화성센터/유통기한(정육lot상선입선출아닐시담당자 연락)/1층 11번도크",
+      "ok/30박스/담당자*010-5290-1220",
+      "96박스/유통기한/라벨/스티커작업",
+    ]) {
+      expect(extractRemarkTimePhrase(noise), noise).toBeNull();
+    }
+  });
+
+  it("전화번호가 섞여 있어도 진짜 시간 표현만 골라낸다", () => {
+    expect(extractRemarkTimePhrase("ok/30박스/담당자*010-5290-1220 /12시~2시입고")).toBe("12시~2시");
+  });
+});
+
+describe("'이후' 표현 — 마감이 아니라 시작 시각이다", () => {
+  it("'1시이후'는 13:00 이후 전부를 뜻한다 (마감으로 뒤집으면 안 된다)", () => {
+    expect(fmt("1시이후")).toBe("13:00~18:00");
+  });
+
+  it("'11시이후'는 11:00 이후 전부를 뜻한다", () => {
+    expect(fmt("11시이후")).toBe("11:00~18:00");
   });
 });
 

@@ -71,6 +71,7 @@ export async function POST(req: Request) {
       boxes: p.boxes,
       columnRaw: p.time.columnRaw,
       conditionText: p.parsedName.conditionText,
+      remarkRaw: p.time.remarkRaw,
       windows: p.time.windows,
       windowsText: formatWindows(p.time.windows),
       mismatch: p.time.mismatch,
