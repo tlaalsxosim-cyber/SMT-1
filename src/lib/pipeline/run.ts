@@ -248,6 +248,32 @@ function minutesToHHMM(m: Minutes): string {
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 
+/**
+ * R-11(시간창 위반 제외) 뒤 R-04/R-05(적재·업체수 하한)에 걸려 회전 전체가
+ * 취소됐을 때의 사유 문구. 소형 차량(1톤·1.5톤 등)은 하한에 딱 맞춰 채우는 경우가
+ * 많아 위반 건 1곳만 빠져도 도미노로 전체가 취소된다 — 어떤 건 때문에,
+ * 얼마나 하한에 못 미쳤는지를 명시해야 담당자가 "왜 이 차만 빈 회전인가"에
+ * 답할 수 있다.
+ */
+function cascadeCancelNote(
+  vehicle: Vehicle,
+  violatorNames: string[],
+  keptBoxes: number,
+  keptCount: number
+): string {
+  const shortfalls: string[] = [];
+  if (keptBoxes < vehicle.최소수량) {
+    shortfalls.push(`적재 ${keptBoxes.toLocaleString()}박스 < 하한 ${vehicle.최소수량.toLocaleString()}박스`);
+  }
+  if (keptCount < vehicle.최소업체수) {
+    shortfalls.push(`${keptCount}개사 < 하한 ${vehicle.최소업체수}개사`);
+  }
+  return (
+    `${violatorNames.join(", ")} 시간창 위반으로 제외되면서 ` +
+    `${shortfalls.join(" · ")} — 남은 물량으로 이 차량의 최소 조건을 채울 수 없어 회전 전체를 취소했습니다`
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // [3] 지오코딩
 // ─────────────────────────────────────────────────────────────
@@ -495,7 +521,12 @@ async function optimizeTrips(
                 boxes: p.boxes,
                 timeRaw: p.time.columnRaw ?? p.parsedName.conditionText,
                 reason: "적재하한미달",
-                note: `같은 회전의 시간창 위반 건이 빠지면서 적재 하한(${t.vehicle.최소수량})을 채우지 못해 회전을 취소했습니다`,
+                note: cascadeCancelNote(
+                  t.vehicle,
+                  violators.map((v) => v.company),
+                  keptBoxes,
+                  kept.length
+                ),
               });
             }
             tripIssues.push({
@@ -559,9 +590,20 @@ async function optimizeTrips(
             boxes: p.boxes,
             timeRaw: p.time.columnRaw ?? p.parsedName.conditionText,
             reason: "적재하한미달",
-            note: "시간창 위반 건 제외 후 적재 하한을 채우지 못해 회전을 취소했습니다",
+            note: cascadeCancelNote(
+              t.vehicle,
+              violators.map((v) => v.company),
+              keptBoxes,
+              kept.length
+            ),
           });
         }
+        tripIssues.push({
+          level: "warning",
+          code: "R-04",
+          message: "시간창 위반 제외 후 적재 하한을 못 채워 회전을 취소했습니다",
+          subject: `${t.vehicle.기사명} ${t.tripNo}회전`,
+        });
         finalTrip = null;
         break;
       }
