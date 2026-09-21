@@ -118,8 +118,16 @@ try {
   await page.screenshot({ path: `${OUT}/4-board.png`, fullPage: true });
 
   // ── 8. 회전 강조 (마커 클릭)
+  // 지도에 배차 마커(방문순서 숫자 있음)·미배차 마커(점선 원, 숫자 없음)·도착지·센터가 섞여 있다.
+  // "배차 마커"를 확실히 골라야 회전(경로) 강조를 테스트한다 — SVG data URI 안에 <text>가
+  // 있는 건 배차 마커뿐이라 그걸로 구분한다. SVG 폴백은 <g> 그룹 자체를 클릭하면 되므로 그대로 둔다.
   // "전체 보기"는 지도 오버레이 버튼과 지도 범례 버튼, 둘 다 있을 수 있다 — 지도 오버레이(첫 번째)만 본다
-  await markerLocator.nth(1).click();
+  const assignedMarkerLocator = usingTmap
+    ? tmapMap.locator('img[src*="%3Ctext"]')
+    : markerLocator;
+  // 마커가 많아지면(미배차 포함) 같은 좌표 근처에 여러 마커가 겹칠 수 있다 — 정확히 어떤
+  // 마커가 맞는지보다 "마커 클릭 → 강조 상태 전환"이 되는지만 스모크 테스트하므로 force로 찍는다
+  await assignedMarkerLocator.nth(1).click({ force: true });
   await page.waitForTimeout(300);
   const resetButton = page.getByRole("button", { name: "전체 보기" }).first();
   const focusVisible = await resetButton.isVisible();

@@ -26,7 +26,7 @@ import {
   Truck,
 } from "lucide-react";
 
-import { MapView } from "@/components/map-view";
+import { MapView, type MapFocus } from "@/components/map-view";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,7 +65,7 @@ function readDragPayload(e: DragEvent): DragPayload | null {
 
 export function BoardTab() {
   const { result, downloadResult, downloaded, moveToTrip, moveToUnassigned } = useApp();
-  const [focusTripId, setFocusTripId] = useState<string | null>(null);
+  const [focus, setFocus] = useState<MapFocus | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
 
   // 기타(미배차)와 기사 티켓이 화면에 동시에 안 보일 만큼 목록이 길 때, 드래그 중
@@ -138,12 +138,12 @@ export function BoardTab() {
             {/* 접었을 때도 지도(특히 TMAP jsv2)는 마운트 상태를 유지한다 — CSS로만 숨겨야
                 펼칠 때마다 지도를 다시 만들며 타일을 재호출하지 않는다 */}
             <CardContent className={cn(!mapOpen && "hidden")}>
-              <MapView result={result} focusTripId={focusTripId} onFocusTrip={setFocusTripId} />
+              <MapView result={result} focus={focus} onFocus={setFocus} />
               <MapLegend
                 trips={result.trips}
                 vehicleIds={result.vehicles.map((v) => v.id)}
-                focusTripId={focusTripId}
-                onFocusTrip={setFocusTripId}
+                focus={focus}
+                onFocus={setFocus}
               />
             </CardContent>
           </Card>
@@ -190,6 +190,8 @@ export function BoardTab() {
               <UnassignedPanel
                 items={result.unassigned}
                 totalBoxes={result.totalBoxes}
+                focus={focus}
+                onFocus={setFocus}
                 onDropUnassigned={(payload) => {
                   if (payload.from !== "unassigned") moveToUnassigned(payload.pointId, payload.from);
                 }}
@@ -272,8 +274,8 @@ export function BoardTab() {
             <h3 className="text-sm font-semibold text-muted-foreground">
               기사별 배차 티켓 ({result.usedTrips}회전)
             </h3>
-            {focusTripId && (
-              <Button variant="ghost" size="sm" onClick={() => setFocusTripId(null)}>
+            {focus && (
+              <Button variant="ghost" size="sm" onClick={() => setFocus(null)}>
                 강조 해제
               </Button>
             )}
@@ -291,8 +293,14 @@ export function BoardTab() {
                     trip.vehicleId
                   )}
                   capacity={result.vehicles.find((v) => v.id === trip.vehicleId)}
-                  active={focusTripId === trip.id}
-                  onToggle={() => setFocusTripId(focusTripId === trip.id ? null : trip.id)}
+                  active={focus?.kind === "trip" && focus.id === trip.id}
+                  onToggle={() =>
+                    setFocus(focus?.kind === "trip" && focus.id === trip.id ? null : { kind: "trip", id: trip.id })
+                  }
+                  focusedPointId={focus?.kind === "point" ? focus.id : null}
+                  onFocusPoint={(pointId) =>
+                    setFocus(focus?.kind === "point" && focus.id === pointId ? null : { kind: "point", id: pointId })
+                  }
                   onDropStop={(payload) => {
                     if (payload.from === trip.id) return;
                     moveToTrip(payload.pointId, payload.from === "unassigned" ? null : payload.from, trip.id);
@@ -410,19 +418,19 @@ function Stat({
 
 /**
  * 지도 색상 범례 — 어느 선이 어느 기사인지 색만으로는 구분이 안 된다는 피드백(2026-09-21)에
- * 대응한다. 칩을 클릭하면 지도의 focusTripId와 똑같이 그 회전만 강조하고 나머지는 흐려지며,
+ * 대응한다. 칩을 클릭하면 지도에서 그 회전만 강조하고 나머지는 흐려지며,
  * ‹ › 로 한 회전씩 순서대로 넘겨 볼 수 있다.
  */
 function MapLegend({
   trips,
   vehicleIds,
-  focusTripId,
-  onFocusTrip,
+  focus,
+  onFocus,
 }: {
   trips: Trip[];
   vehicleIds: string[];
-  focusTripId: string | null;
-  onFocusTrip: (id: string | null) => void;
+  focus: MapFocus | null;
+  onFocus: (f: MapFocus | null) => void;
 }) {
   const ordered = useMemo(
     () => [...trips].sort((a, b) => a.기사명.localeCompare(b.기사명, "ko") || a.tripNo - b.tripNo),
@@ -432,10 +440,10 @@ function MapLegend({
   if (ordered.length === 0) return null;
 
   const step = (dir: 1 | -1) => {
-    const idx = ordered.findIndex((t) => t.id === focusTripId);
+    const idx = focus?.kind === "trip" ? ordered.findIndex((t) => t.id === focus.id) : -1;
     const next =
       idx === -1 ? (dir === 1 ? 0 : ordered.length - 1) : (idx + dir + ordered.length) % ordered.length;
-    onFocusTrip(ordered[next].id);
+    onFocus({ kind: "trip", id: ordered[next].id });
   };
 
   return (
@@ -451,12 +459,12 @@ function MapLegend({
           <Button variant="outline" size="icon" className="size-6" onClick={() => step(1)}>
             <ChevronRight className="size-3.5" />
           </Button>
-          {focusTripId && (
+          {focus && (
             <Button
               variant="ghost"
               size="sm"
               className="h-6 px-2 text-xs"
-              onClick={() => onFocusTrip(null)}
+              onClick={() => onFocus(null)}
             >
               전체 보기
             </Button>
@@ -466,12 +474,12 @@ function MapLegend({
       <div className="flex flex-wrap gap-1.5">
         {ordered.map((t) => {
           const color = driverColor(vehicleIds, t.vehicleId);
-          const active = focusTripId === t.id;
+          const active = focus?.kind === "trip" && focus.id === t.id;
           return (
             <button
               key={t.id}
               type="button"
-              onClick={() => onFocusTrip(active ? null : t.id)}
+              onClick={() => onFocus(active ? null : { kind: "trip", id: t.id })}
               className={cn(
                 "flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] transition-colors",
                 active ? "border-transparent" : "hover:bg-accent"
@@ -499,6 +507,8 @@ function TripTicket({
   capacity,
   active,
   onToggle,
+  focusedPointId,
+  onFocusPoint,
   onDropStop,
 }: {
   trip: Trip;
@@ -506,6 +516,9 @@ function TripTicket({
   capacity?: { 최소수량: number; 최대수량: number; 최대업체수: number; 도착지: string };
   active: boolean;
   onToggle: () => void;
+  /** 배차 보드에서 좌표 하나만 강조하고 있으면 그 pointId */
+  focusedPointId: string | null;
+  onFocusPoint: (pointId: string) => void;
   onDropStop: (payload: DragPayload) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
@@ -586,7 +599,14 @@ function TripTicket({
             key={s.pointId}
             draggable
             onDragStart={(e) => setDragPayload(e, { pointId: s.pointId, from: trip.id })}
-            className="cursor-grab rounded-md border px-2.5 py-2 active:cursor-grabbing"
+            onClick={(e) => {
+              e.stopPropagation();
+              onFocusPoint(s.pointId);
+            }}
+            className={cn(
+              "cursor-grab rounded-md border px-2.5 py-2 active:cursor-grabbing",
+              focusedPointId === s.pointId && "ring-2 ring-primary bg-accent/40"
+            )}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex min-w-0 items-start gap-2">
@@ -599,7 +619,9 @@ function TripTicket({
                 </span>
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium">{s.company}</div>
-                  <div className="truncate text-[11px] text-muted-foreground">{s.region}</div>
+                  <div className="truncate text-[11px] text-muted-foreground">
+                    {s.address} · {s.timeRaw || "시간 제약 없음"}
+                  </div>
                 </div>
               </div>
               <div className="shrink-0 text-right">
@@ -616,11 +638,8 @@ function TripTicket({
               </div>
             </div>
 
-            {(s.timeRaw || s.tags.length > 0 || s.manual) && (
+            {(s.tags.length > 0 || s.manual) && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                {s.timeRaw && (
-                  <span className="text-[10px] text-muted-foreground">{s.timeRaw}</span>
-                )}
                 {s.tags.map((t) => (
                   <Badge key={t} variant="outline" className="px-1 py-0 text-[10px] font-normal">
                     {t}
@@ -666,10 +685,14 @@ function TripTicket({
 function UnassignedPanel({
   items,
   totalBoxes,
+  focus,
+  onFocus,
   onDropUnassigned,
 }: {
   items: UnassignedItem[];
   totalBoxes: number;
+  focus: MapFocus | null;
+  onFocus: (f: MapFocus | null) => void;
   onDropUnassigned: (payload: DragPayload) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
@@ -755,11 +778,18 @@ function UnassignedPanel({
       <CardContent className="space-y-3">
         {byRegion.map(({ region, list, boxes }) => {
           const collapsed = collapsedRegions.has(region);
+          const regionFocused = focus?.kind === "region" && focus.id === region;
           return (
-            <div key={region} className="rounded-md border">
+            <div
+              key={region}
+              className={cn("rounded-md border", regionFocused && "ring-2 ring-primary")}
+            >
               <div
                 className="flex cursor-pointer items-center justify-between border-b bg-muted/40 px-3 py-2"
-                onClick={() => toggleRegion(region)}
+                onClick={() => {
+                  toggleRegion(region);
+                  onFocus(regionFocused ? null : { kind: "region", id: region });
+                }}
               >
                 <div className="flex items-center gap-2">
                   {collapsed ? (
@@ -779,6 +809,7 @@ function UnassignedPanel({
                 <div className="divide-y">
                   {list.map((u) => {
                     const draggableItem = !!u.geo;
+                    const pointFocused = focus?.kind === "point" && focus.id === u.pointId;
                     return (
                       <div
                         key={u.pointId}
@@ -786,9 +817,15 @@ function UnassignedPanel({
                         onDragStart={(e) =>
                           draggableItem && setDragPayload(e, { pointId: u.pointId, from: "unassigned" })
                         }
+                        onClick={(e) => {
+                          if (!draggableItem) return;
+                          e.stopPropagation();
+                          onFocus(pointFocused ? null : { kind: "point", id: u.pointId });
+                        }}
                         className={cn(
                           "px-3 py-2",
-                          draggableItem ? "cursor-grab active:cursor-grabbing" : "opacity-70"
+                          draggableItem ? "cursor-grab active:cursor-grabbing" : "opacity-70",
+                          pointFocused && "bg-accent/40"
                         )}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -799,7 +836,7 @@ function UnassignedPanel({
                             <div className="min-w-0">
                               <div className="truncate text-sm font-medium">{u.company}</div>
                               <div className="truncate text-[11px] text-muted-foreground">
-                                {u.address}
+                                {u.address} · {u.timeRaw || "시간 제약 없음"}
                               </div>
                             </div>
                           </div>
@@ -813,7 +850,7 @@ function UnassignedPanel({
                         <div className="mt-1 text-[11px] text-muted-foreground">{u.note}</div>
                         {!draggableItem && (
                           <div className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
-                            좌표가 없어 회전에 끌어다 놓을 수 없습니다
+                            좌표가 없어 회전에 끌어다 놓거나 지도에 표시할 수 없습니다
                           </div>
                         )}
                       </div>

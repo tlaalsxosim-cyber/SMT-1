@@ -11,6 +11,13 @@
  *
  * 좌표 순서 주의: 내부 데이터는 전부 [위도, 경도]로 통일한다 (TMAP 응답의 [경도, 위도]는
  * client.ts에서 이미 뒤집어 두었다).
+ *
+ * 강조(focus)는 세 종류다 (2026-09-21 피드백 — 배차·미배차 업체를 클릭하면 좌표를
+ * 보여 달라, 미배차 권역을 클릭하면 권역별로 보여 달라):
+ *   - trip:   기사 티켓·범례·마커 클릭 — 그 회전 경로 전체를 강조
+ *   - point:  배차 보드에서 배송지 한 곳을 클릭 — 그 좌표 하나만 강조
+ *   - region: 기타(미배차) 권역 헤더를 클릭 — 그 권역의 미배차 좌표 전부를 강조
+ * 세 종류는 배타적이다 — 하나를 켜면 나머지는 꺼진다.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,11 +35,18 @@ import {
 import type { DispatchResponse } from "@/lib/api/contracts";
 import { driverColor, hhmm, n } from "@/lib/format";
 
+export type MapFocus =
+  | { kind: "trip"; id: string }
+  | { kind: "point"; id: string }
+  | { kind: "region"; id: string };
+
+/** 미배차 마커 색상 — 어느 기사 색과도 겹치지 않는 중립색 */
+const UNASSIGNED_COLOR = "#64748b";
+
 interface Props {
   result: DispatchResponse;
-  /** 선택된 회전 id — 있으면 해당 회전만 강조 */
-  focusTripId: string | null;
-  onFocusTrip: (id: string | null) => void;
+  focus: MapFocus | null;
+  onFocus: (f: MapFocus | null) => void;
 }
 
 interface Marker {
@@ -41,11 +55,30 @@ interface Marker {
   label: string;
   sub: string;
   color: string;
-  tripId: string;
-  seq: number;
+  /** 미배차 마커는 null */
+  tripId: string | null;
+  pointId: string;
+  region: string;
+  /** 배차됐는지(회전 소속) 여부 — 지도 마커 모양을 가른다 */
+  assigned: boolean;
+  /** 배차 마커만 방문순서 번호가 있다 */
+  seq: number | null;
 }
 
-export function MapView({ result, focusTripId, onFocusTrip }: Props) {
+function isMarkerDimmed(m: Marker, focus: MapFocus | null): boolean {
+  if (!focus) return false;
+  if (focus.kind === "trip") return m.tripId !== focus.id;
+  if (focus.kind === "point") return m.pointId !== focus.id;
+  return m.region !== focus.id; // region
+}
+
+function isPathDimmed(pathId: string, focus: MapFocus | null): boolean {
+  if (!focus) return false;
+  // point/region 강조는 회전 경로가 아니라 좌표 자체를 보는 것이므로 경로선은 전부 흐리게 둔다
+  return focus.kind !== "trip" || focus.id !== pathId;
+}
+
+export function MapView({ result, focus, onFocus }: Props) {
   const vehicleIds = useMemo(() => result.vehicles.map((v) => v.id), [result.vehicles]);
 
   const markers = useMemo<Marker[]>(() => {
@@ -61,12 +94,31 @@ export function MapView({ result, focusTripId, onFocusTrip }: Props) {
           sub: `${n(s.boxes)}박스 · ${hhmm(s.arriveAt)} · ${s.timeRaw || "시간 제약 없음"}`,
           color,
           tripId: t.id,
+          pointId: s.pointId,
+          region: s.region,
+          assigned: true,
           seq: s.seq,
         });
       }
     }
+    // 기타(미배차)도 좌표가 있으면 같이 그린다 — 클릭해서 어디 있는지 볼 수 있어야 한다
+    for (const u of result.unassigned) {
+      if (!u.geo) continue;
+      out.push({
+        lat: u.geo.lat,
+        lon: u.geo.lon,
+        label: u.company,
+        sub: `${n(u.boxes)}박스 · ${u.timeRaw || "시간 제약 없음"} · 미배차(${u.reason})`,
+        color: UNASSIGNED_COLOR,
+        tripId: null,
+        pointId: u.pointId,
+        region: u.region,
+        assigned: false,
+        seq: null,
+      });
+    }
     return out;
-  }, [result.trips, vehicleIds]);
+  }, [result.trips, result.unassigned, vehicleIds]);
 
   const paths = useMemo(
     () =>
@@ -103,8 +155,8 @@ export function MapView({ result, focusTripId, onFocusTrip }: Props) {
         markers={markers}
         paths={paths}
         homes={homes}
-        focusTripId={focusTripId}
-        onFocusTrip={onFocusTrip}
+        focus={focus}
+        onFocus={onFocus}
         demoMode={result.demoMode}
         loading={sdk.status !== "ready"}
       />
@@ -117,8 +169,8 @@ export function MapView({ result, focusTripId, onFocusTrip }: Props) {
       markers={markers}
       paths={paths}
       homes={homes}
-      focusTripId={focusTripId}
-      onFocusTrip={onFocusTrip}
+      focus={focus}
+      onFocus={onFocus}
       demoMode={result.demoMode}
       fallbackNote={sdk.error ?? undefined}
     />
@@ -134,8 +186,8 @@ interface SvgProps {
   markers: Marker[];
   paths: { id: string; color: string; points: [number, number][] }[];
   homes: { lat: number; lon: number; label: string; color: string }[];
-  focusTripId: string | null;
-  onFocusTrip: (id: string | null) => void;
+  focus: MapFocus | null;
+  onFocus: (f: MapFocus | null) => void;
   demoMode: boolean;
   /** jsv2 로딩 실패 사유 — 있으면 배지로 알린다 */
   fallbackNote?: string;
@@ -143,16 +195,7 @@ interface SvgProps {
 
 const PADDING = 36;
 
-function SvgMap({
-  center,
-  markers,
-  paths,
-  homes,
-  focusTripId,
-  onFocusTrip,
-  demoMode,
-  fallbackNote,
-}: SvgProps) {
+function SvgMap({ center, markers, paths, homes, focus, onFocus, demoMode, fallbackNote }: SvgProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 800, h: 520 });
   const [hover, setHover] = useState<Marker | null>(null);
@@ -206,7 +249,11 @@ function SvgMap({
   }, [bounds, size]);
 
   const [cx, cy] = project(center.lat, center.lon);
-  const dimmed = (tripId: string) => focusTripId !== null && focusTripId !== tripId;
+
+  const toggleTrip = (tripId: string) =>
+    onFocus(focus?.kind === "trip" && focus.id === tripId ? null : { kind: "trip", id: tripId });
+  const togglePoint = (pointId: string) =>
+    onFocus(focus?.kind === "point" && focus.id === pointId ? null : { kind: "point", id: pointId });
 
   return (
     <div ref={wrapRef} className="relative h-[520px] w-full overflow-hidden rounded-lg border bg-card">
@@ -231,8 +278,8 @@ function SvgMap({
             points={p.points.map(([la, lo]) => project(la, lo).join(",")).join(" ")}
             fill="none"
             stroke={p.color}
-            strokeWidth={focusTripId === p.id ? 3.5 : 2}
-            strokeOpacity={dimmed(p.id) ? 0.12 : 0.75}
+            strokeWidth={focus?.kind === "trip" && focus.id === p.id ? 3.5 : 2}
+            strokeOpacity={isPathDimmed(p.id, focus) ? 0.12 : 0.75}
             strokeLinejoin="round"
             strokeLinecap="round"
             strokeDasharray={demoMode ? "6 4" : undefined}
@@ -255,32 +302,47 @@ function SvgMap({
           );
         })}
 
-        {/* 납품처 마커 */}
+        {/* 납품처 마커 — 배차는 채운 번호 원, 미배차는 속 빈 점선 원 */}
         {markers.map((m, i) => {
           const [x, y] = project(m.lat, m.lon);
-          const faded = dimmed(m.tripId);
+          const faded = isMarkerDimmed(m, focus);
           return (
             <g
-              key={`${m.tripId}-${i}`}
+              key={`${m.pointId}-${i}`}
               opacity={faded ? 0.18 : 1}
               className="cursor-pointer"
               onMouseEnter={() => setHover(m)}
               onMouseLeave={() => setHover(null)}
-              onClick={() => onFocusTrip(focusTripId === m.tripId ? null : m.tripId)}
+              onClick={() => (m.assigned ? toggleTrip(m.tripId!) : togglePoint(m.pointId))}
             >
               <circle cx={x} cy={y} r={11} fill={m.color} fillOpacity={0.18} />
-              <circle cx={x} cy={y} r={7.5} fill={m.color} stroke="white" strokeWidth={1.6} />
-              <text
-                x={x}
-                y={y + 3}
-                textAnchor="middle"
-                fontSize={8}
-                fontWeight={700}
-                fill="white"
-                pointerEvents="none"
-              >
-                {m.seq}
-              </text>
+              {m.assigned ? (
+                <>
+                  <circle cx={x} cy={y} r={7.5} fill={m.color} stroke="white" strokeWidth={1.6} />
+                  <text
+                    x={x}
+                    y={y + 3}
+                    textAnchor="middle"
+                    fontSize={8}
+                    fontWeight={700}
+                    fill="white"
+                    pointerEvents="none"
+                  >
+                    {m.seq}
+                  </text>
+                </>
+              ) : (
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={6}
+                  fill="white"
+                  fillOpacity={0.85}
+                  stroke={m.color}
+                  strokeWidth={1.8}
+                  strokeDasharray="2.5 2"
+                />
+              )}
             </g>
           );
         })}
@@ -323,10 +385,10 @@ function SvgMap({
             지도 SDK 미사용 — {fallbackNote}
           </Badge>
         )}
-        {focusTripId && (
+        {focus && (
           <button
             type="button"
-            onClick={() => onFocusTrip(null)}
+            onClick={() => onFocus(null)}
             className="rounded-md border bg-background/90 px-2 py-1 text-[11px] hover:bg-accent"
           >
             전체 보기
@@ -335,7 +397,7 @@ function SvgMap({
       </div>
 
       <div className="absolute bottom-3 right-3 rounded-md border bg-background/90 px-2 py-1 text-[11px] text-muted-foreground">
-        ◆ 센터 · ● 납품처(방문순서) · ⌂ 기사 도착지
+        ◆ 센터 · ● 배차(방문순서) · ○ 미배차 · ⌂ 기사 도착지
       </div>
     </div>
   );
@@ -349,7 +411,7 @@ interface TmapCanvasProps extends SvgProps {
   loading: boolean;
 }
 
-/** 마커 아이콘을 data URI SVG로 만든다 — 외부 이미지 호스팅이 필요 없다 */
+/** 배차 마커 아이콘을 data URI SVG로 만든다 — 외부 이미지 호스팅이 필요 없다 */
 function markerIcon(color: string, seq: number, dimmed = false): string {
   const opacity = dimmed ? 0.25 : 1;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26" opacity="${opacity}">
@@ -357,6 +419,17 @@ function markerIcon(color: string, seq: number, dimmed = false): string {
     <circle cx="13" cy="13" r="8.5" fill="${color}" stroke="#fff" stroke-width="2"/>
     <text x="13" y="16.5" text-anchor="middle" font-size="9" font-weight="700" fill="#fff"
       font-family="sans-serif">${seq}</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/** 미배차 마커 아이콘 — 속 빈 점선 원 (번호 없음, 아직 회전에 안 묶여 있다는 뜻) */
+function unassignedMarkerIcon(color: string, dimmed = false): string {
+  const opacity = dimmed ? 0.25 : 1;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22" opacity="${opacity}">
+    <circle cx="11" cy="11" r="10" fill="${color}" fill-opacity="0.18"/>
+    <circle cx="11" cy="11" r="6" fill="#fff" fill-opacity="0.9" stroke="${color}" stroke-width="1.8"
+      stroke-dasharray="2.5 2"/>
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -383,16 +456,7 @@ function escapeHtml(s: string): string {
   );
 }
 
-function TmapCanvas({
-  center,
-  markers,
-  paths,
-  homes,
-  focusTripId,
-  onFocusTrip,
-  demoMode,
-  loading,
-}: TmapCanvasProps) {
+function TmapCanvas({ center, markers, paths, homes, focus, onFocus, demoMode, loading }: TmapCanvasProps) {
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<TmapMapInstance | null>(null);
   const overlaysRef = useRef<{ markers: TmapMarker[]; lines: TmapPolyline[] }>({
@@ -462,85 +526,101 @@ function TmapCanvas({
     }
 
     function drawOverlays(T: NonNullable<ReturnType<typeof getTmap>>, map: TmapMapInstance) {
-    const bounds = new T.LatLngBounds();
-    const extend = (lat: number, lon: number) => bounds.extend(new T.LatLng(lat, lon));
+      const bounds = new T.LatLngBounds();
+      const extend = (lat: number, lon: number) => bounds.extend(new T.LatLng(lat, lon));
 
-    // 회전별 경로선
-    for (const p of paths) {
-      const dimmed = focusTripId !== null && focusTripId !== p.id;
-      const line = new T.Polyline({
-        path: p.points.map(([la, lo]) => new T.LatLng(la, lo)),
-        strokeColor: p.color,
-        strokeWeight: focusTripId === p.id ? 6 : 4,
-        strokeOpacity: dimmed ? 0.15 : 0.75,
-        strokeStyle: demoMode ? "dash" : "solid",
-        map,
-      });
-      overlaysRef.current.lines.push(line);
-      for (const [la, lo] of p.points) extend(la, lo);
-    }
+      const toggleTrip = (tripId: string) =>
+        onFocus(focus?.kind === "trip" && focus.id === tripId ? null : { kind: "trip", id: tripId });
+      const togglePoint = (pointId: string) =>
+        onFocus(focus?.kind === "point" && focus.id === pointId ? null : { kind: "point", id: pointId });
 
-    // 납품처 마커. 다른 회전이 선택돼 있으면 흐리게 그린다.
-    for (const m of markers) {
-      const dimmed = focusTripId !== null && focusTripId !== m.tripId;
-      const marker = new T.Marker({
-        position: new T.LatLng(m.lat, m.lon),
-        icon: markerIcon(m.color, m.seq, dimmed),
-        iconSize: new T.Size(26, 26),
-        title: m.label,
-        map,
-      });
-      marker.addListener("click", () => {
-        infoRef.current?.setMap(null);
-        infoRef.current = new T.InfoWindow({
-          position: new T.LatLng(m.lat, m.lon),
-          content: `<div style="padding:8px 10px;font-size:12px;line-height:1.5">
-              <b>${escapeHtml(m.label)}</b><br/>${escapeHtml(m.sub)}
-            </div>`,
-          type: 2,
-          border: "1px solid #cbd5e1",
+      // 회전별 경로선
+      for (const p of paths) {
+        const dimmed = isPathDimmed(p.id, focus);
+        const line = new T.Polyline({
+          path: p.points.map(([la, lo]) => new T.LatLng(la, lo)),
+          strokeColor: p.color,
+          strokeWeight: focus?.kind === "trip" && focus.id === p.id ? 6 : 4,
+          strokeOpacity: dimmed ? 0.15 : 0.75,
+          strokeStyle: demoMode ? "dash" : "solid",
           map,
         });
-        onFocusTrip(focusTripId === m.tripId ? null : m.tripId);
-      });
-      overlaysRef.current.markers.push(marker);
-      extend(m.lat, m.lon);
-    }
+        overlaysRef.current.lines.push(line);
+        for (const [la, lo] of p.points) extend(la, lo);
+      }
 
-    // 기사 도착지
-    for (const h of homes) {
+      // 납품처 마커(배차 + 미배차). 다른 대상이 선택돼 있으면 흐리게 그린다.
+      for (const m of markers) {
+        const dimmed = isMarkerDimmed(m, focus);
+        const marker = new T.Marker({
+          position: new T.LatLng(m.lat, m.lon),
+          icon: m.assigned ? markerIcon(m.color, m.seq!, dimmed) : unassignedMarkerIcon(m.color, dimmed),
+          iconSize: new T.Size(m.assigned ? 26 : 22, m.assigned ? 26 : 22),
+          title: m.label,
+          map,
+        });
+        marker.addListener("click", () => {
+          infoRef.current?.setMap(null);
+          infoRef.current = new T.InfoWindow({
+            position: new T.LatLng(m.lat, m.lon),
+            content: `<div style="padding:8px 10px;font-size:12px;line-height:1.5">
+              <b>${escapeHtml(m.label)}</b><br/>${escapeHtml(m.sub)}
+            </div>`,
+            type: 2,
+            border: "1px solid #cbd5e1",
+            map,
+          });
+          if (m.assigned) toggleTrip(m.tripId!);
+          else togglePoint(m.pointId);
+        });
+        overlaysRef.current.markers.push(marker);
+        extend(m.lat, m.lon);
+      }
+
+      // 기사 도착지
+      for (const h of homes) {
+        overlaysRef.current.markers.push(
+          new T.Marker({
+            position: new T.LatLng(h.lat, h.lon),
+            icon: homeIcon(h.color),
+            iconSize: new T.Size(22, 22),
+            title: `${h.label} 도착지`,
+            map,
+          })
+        );
+        extend(h.lat, h.lon);
+      }
+
+      // 평택센터
       overlaysRef.current.markers.push(
         new T.Marker({
-          position: new T.LatLng(h.lat, h.lon),
-          icon: homeIcon(h.color),
-          iconSize: new T.Size(22, 22),
-          title: `${h.label} 도착지`,
+          position: new T.LatLng(center.lat, center.lon),
+          icon: centerIcon(),
+          iconSize: new T.Size(26, 26),
+          title: "평택센터",
           map,
         })
       );
-      extend(h.lat, h.lon);
-    }
+      extend(center.lat, center.lon);
 
-    // 평택센터
-    overlaysRef.current.markers.push(
-      new T.Marker({
-        position: new T.LatLng(center.lat, center.lon),
-        icon: centerIcon(),
-        iconSize: new T.Size(26, 26),
-        title: "평택센터",
-        map,
-      })
-    );
-    extend(center.lat, center.lon);
-
-    // 모든 좌표가 한 화면에 들어오게 (FR-29)
-    try {
-      map.fitBounds(bounds);
-    } catch {
-      map.setCenter(new T.LatLng(center.lat, center.lon));
+      // 강조 대상이 있으면 그 좌표들로 범위를 좁혀서 보여 준다. 없으면 전체를 보여 준다 (FR-29)
+      const focusedPoints =
+        focus && focus.kind !== "trip" ? markers.filter((m) => !isMarkerDimmed(m, focus)) : [];
+      try {
+        if (focusedPoints.length > 0) {
+          const fBounds = new T.LatLngBounds();
+          for (const m of focusedPoints) fBounds.extend(new T.LatLng(m.lat, m.lon));
+          map.fitBounds(fBounds);
+          // 점 하나만 강조할 때는 fitBounds가 과하게 확대해 지도가 어색해지므로 고정 줌을 쓴다
+          if (focusedPoints.length === 1) map.setZoom(15);
+        } else {
+          map.fitBounds(bounds);
+        }
+      } catch {
+        map.setCenter(new T.LatLng(center.lat, center.lon));
+      }
     }
-    }
-  }, [loading, markers, paths, homes, center, focusTripId, onFocusTrip, demoMode, clearOverlays]);
+  }, [loading, markers, paths, homes, center, focus, onFocus, demoMode, clearOverlays]);
 
   return (
     <div className="relative h-[520px] w-full overflow-hidden rounded-lg border bg-card">
@@ -558,10 +638,10 @@ function TmapCanvas({
         </Badge>
       </div>
 
-      {focusTripId && (
+      {focus && (
         <button
           type="button"
-          onClick={() => onFocusTrip(null)}
+          onClick={() => onFocus(null)}
           className="absolute bottom-3 right-3 z-10 rounded-md border bg-background/90 px-2 py-1 text-[11px] hover:bg-accent"
         >
           전체 보기
