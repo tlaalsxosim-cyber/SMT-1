@@ -7,11 +7,13 @@
  */
 
 import { useMemo, useState } from "react";
+import type { DragEvent } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
   Clock,
   Download,
+  GripVertical,
   Home,
   MapPin,
   Package,
@@ -33,8 +35,30 @@ import { driverColor, formatDate, hhmm, km, loadRateTone, n, pct } from "@/lib/f
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+interface DragPayload {
+  pointId: string;
+  /** "unassigned"면 기타(미배차) 패널에서 끌어온 것 */
+  from: string;
+}
+
+const DRAG_MIME = "application/json";
+
+function setDragPayload(e: DragEvent, payload: DragPayload) {
+  e.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
+  e.dataTransfer.effectAllowed = "move";
+}
+
+function readDragPayload(e: DragEvent): DragPayload | null {
+  try {
+    const raw = e.dataTransfer.getData(DRAG_MIME);
+    return raw ? (JSON.parse(raw) as DragPayload) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function BoardTab() {
-  const { result, downloadResult, downloaded } = useApp();
+  const { result, downloadResult, downloaded, moveToTrip, moveToUnassigned } = useApp();
   const [focusTripId, setFocusTripId] = useState<string | null>(null);
 
   if (!result) {
@@ -114,7 +138,13 @@ export function BoardTab() {
             </TabsList>
 
             <TabsContent value="unassigned">
-              <UnassignedPanel items={result.unassigned} totalBoxes={result.totalBoxes} />
+              <UnassignedPanel
+                items={result.unassigned}
+                totalBoxes={result.totalBoxes}
+                onDropUnassigned={(payload) => {
+                  if (payload.from !== "unassigned") moveToUnassigned(payload.pointId, payload.from);
+                }}
+              />
             </TabsContent>
 
             <TabsContent value="address">
@@ -214,6 +244,10 @@ export function BoardTab() {
                   capacity={result.vehicles.find((v) => v.id === trip.vehicleId)}
                   active={focusTripId === trip.id}
                   onToggle={() => setFocusTripId(focusTripId === trip.id ? null : trip.id)}
+                  onDropStop={(payload) => {
+                    if (payload.from === trip.id) return;
+                    moveToTrip(payload.pointId, payload.from === "unassigned" ? null : payload.from, trip.id);
+                  }}
                 />
               ))}
           </div>
@@ -331,28 +365,53 @@ function TripTicket({
   capacity,
   active,
   onToggle,
+  onDropStop,
 }: {
   trip: Trip;
   color: string;
-  capacity?: { 최소수량: number; 최대수량: number; 도착지: string };
+  capacity?: { 최소수량: number; 최대수량: number; 최대업체수: number; 도착지: string };
   active: boolean;
   onToggle: () => void;
+  onDropStop: (payload: DragPayload) => void;
 }) {
+  const [dragOver, setDragOver] = useState(false);
+  const overCapacity = capacity ? trip.boxes > capacity.최대수량 : false;
+  const overCompanyCap = capacity ? trip.stops.length > capacity.최대업체수 : false;
+
   return (
     <Card
       className={cn(
         "cursor-pointer transition-shadow hover:shadow-md",
-        active && "ring-2 ring-offset-1"
+        active && "ring-2 ring-offset-1",
+        dragOver && "ring-2 ring-primary"
       )}
-      style={active ? { boxShadow: `0 0 0 2px ${color}` } : undefined}
+      style={active && !dragOver ? { boxShadow: `0 0 0 2px ${color}` } : undefined}
       onClick={onToggle}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const payload = readDragPayload(e);
+        if (payload) onDropStop(payload);
+      }}
     >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="size-3 rounded-full" style={{ background: color }} />
             <div>
-              <CardTitle className="text-base">{trip.기사명}</CardTitle>
+              <CardTitle className="flex items-center gap-1.5 text-base">
+                {trip.기사명}
+                {trip.manualEdit && (
+                  <Badge variant="outline" className="text-[10px] font-normal">
+                    수동 조정
+                  </Badge>
+                )}
+              </CardTitle>
               <CardDescription>
                 {trip.톤수라벨} · {trip.tripNo}회전 · 출발 {hhmm(trip.departAt)}
               </CardDescription>
@@ -365,19 +424,39 @@ function TripTicket({
             </div>
           </div>
         </div>
-        <Progress value={trip.loadRate * 100} className="mt-1 h-1.5" />
+        <Progress value={Math.min(100, trip.loadRate * 100)} className="mt-1 h-1.5" />
         {capacity && (
-          <div className="text-[11px] text-muted-foreground">
-            적재 범위 {n(capacity.최소수량)}~{n(capacity.최대수량)} 박스
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+            <span>
+              적재 범위 {n(capacity.최소수량)}~{n(capacity.최대수량)} 박스 · 업체 최대{" "}
+              {capacity.최대업체수}곳
+            </span>
+            {overCapacity && <Badge variant="destructive" className="text-[10px]">적재 초과</Badge>}
+            {overCompanyCap && (
+              <Badge variant="destructive" className="text-[10px]">
+                업체수 초과
+              </Badge>
+            )}
           </div>
         )}
       </CardHeader>
 
       <CardContent className="space-y-2 pb-4">
+        {trip.stops.length === 0 && (
+          <div className="rounded-md border border-dashed px-2.5 py-4 text-center text-xs text-muted-foreground">
+            배송지가 없습니다 — 기타에서 끌어다 놓으십시오
+          </div>
+        )}
         {trip.stops.map((s) => (
-          <div key={s.pointId} className="rounded-md border px-2.5 py-2">
+          <div
+            key={s.pointId}
+            draggable
+            onDragStart={(e) => setDragPayload(e, { pointId: s.pointId, from: trip.id })}
+            className="cursor-grab rounded-md border px-2.5 py-2 active:cursor-grabbing"
+          >
             <div className="flex items-start justify-between gap-2">
               <div className="flex min-w-0 items-start gap-2">
+                <GripVertical className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
                 <span
                   className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
                   style={{ background: color }}
@@ -403,7 +482,7 @@ function TripTicket({
               </div>
             </div>
 
-            {(s.timeRaw || s.tags.length > 0) && (
+            {(s.timeRaw || s.tags.length > 0 || s.manual) && (
               <div className="mt-1.5 flex flex-wrap items-center gap-1">
                 {s.timeRaw && (
                   <span className="text-[10px] text-muted-foreground">{s.timeRaw}</span>
@@ -413,6 +492,11 @@ function TripTicket({
                     {t}
                   </Badge>
                 ))}
+                {s.manual && (
+                  <Badge variant="secondary" className="px-1 py-0 text-[10px] font-normal">
+                    수동 배정
+                  </Badge>
+                )}
               </div>
             )}
           </div>
@@ -432,6 +516,12 @@ function TripTicket({
         {capacity && (
           <div className="truncate text-[11px] text-muted-foreground">→ {capacity.도착지}</div>
         )}
+        {trip.manualEdit && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+            수동 조정된 회전입니다 — 거리·도착시각은 직선거리 근사값입니다. 2회전 이상 차량이면
+            다음 회전 출발 시각을 다시 확인하십시오.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
@@ -442,10 +532,13 @@ function TripTicket({
 function UnassignedPanel({
   items,
   totalBoxes,
+  onDropUnassigned,
 }: {
   items: UnassignedItem[];
   totalBoxes: number;
+  onDropUnassigned: (payload: DragPayload) => void;
 }) {
+  const [dragOver, setDragOver] = useState(false);
   const byRegion = useMemo(() => {
     const map = new Map<string, UnassignedItem[]>();
     for (const u of items) {
@@ -463,23 +556,39 @@ function UnassignedPanel({
 
   const unassignedBoxes = items.reduce((s, x) => s + x.boxes, 0);
 
+  const dropHandlers = {
+    onDragOver: (e: DragEvent) => {
+      e.preventDefault();
+      setDragOver(true);
+    },
+    onDragLeave: () => setDragOver(false),
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      const payload = readDragPayload(e);
+      if (payload) onDropUnassigned(payload);
+    },
+  };
+
   if (items.length === 0) {
     return (
-      <Card>
+      <Card className={cn(dragOver && "ring-2 ring-primary")} {...dropHandlers}>
         <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-          <CheckCircle2 className="size-4 text-emerald-600" /> 전량 배차되었습니다.
+          <CheckCircle2 className="size-4 text-emerald-600" /> 전량 배차되었습니다. 기사 티켓에서
+          끌어다 놓으면 여기로 미배차 처리할 수 있습니다.
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card>
+    <Card className={cn(dragOver && "ring-2 ring-primary")} {...dropHandlers}>
       <CardHeader>
         <CardTitle className="text-base">기타 (미배차) — 권역별</CardTitle>
         <CardDescription>
           총 {n(unassignedBoxes)} 박스 ({pct(unassignedBoxes / Math.max(1, totalBoxes), 1)}).
           권역별 소계로 용차 1대에 묶을 수 있는지 판단하십시오. 용차 투입은 담당자 결정입니다 (R-12).
+          업체를 끌어다 기사 티켓에 놓으면 수동으로 배정할 수 있습니다.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -496,23 +605,48 @@ function UnassignedPanel({
               <span className="text-sm font-semibold tabular-nums">{n(boxes)} 박스</span>
             </div>
             <div className="divide-y">
-              {list.map((u) => (
-                <div key={u.pointId} className="px-3 py-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{u.company}</div>
-                      <div className="truncate text-[11px] text-muted-foreground">{u.address}</div>
+              {list.map((u) => {
+                const draggableItem = !!u.geo;
+                return (
+                  <div
+                    key={u.pointId}
+                    draggable={draggableItem}
+                    onDragStart={(e) =>
+                      draggableItem && setDragPayload(e, { pointId: u.pointId, from: "unassigned" })
+                    }
+                    className={cn(
+                      "px-3 py-2",
+                      draggableItem ? "cursor-grab active:cursor-grabbing" : "opacity-70"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 items-start gap-2">
+                        {draggableItem && (
+                          <GripVertical className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium">{u.company}</div>
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            {u.address}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-sm tabular-nums">{n(u.boxes)}</div>
+                        <Badge variant="outline" className="text-[10px]">
+                          {u.reason}
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="shrink-0 text-right">
-                      <div className="text-sm tabular-nums">{n(u.boxes)}</div>
-                      <Badge variant="outline" className="text-[10px]">
-                        {u.reason}
-                      </Badge>
-                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">{u.note}</div>
+                    {!draggableItem && (
+                      <div className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                        좌표가 없어 회전에 끌어다 놓을 수 없습니다
+                      </div>
+                    )}
                   </div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">{u.note}</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))}

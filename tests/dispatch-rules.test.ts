@@ -282,3 +282,48 @@ describe("R-18 — 천안 이남은 지입 배차에서 제외", () => {
     expect(warn!.message).toContain("공차");
   });
 });
+
+describe("R-06 — 다회전 분할은 같은 차량 안에서만 (분할잔여 방지)", () => {
+  it("회전수 2 이상인 차량이 있으면 그 차량의 1·2회전에 나눠 싣는다", () => {
+    const big = point("미담", 1373, "경기도 용인시 처인구 중부대로 1199", 용인);
+    const twoTrip = vehicle({ 회전수: 2, 최소수량: 100, 최대수량: 1200 });
+
+    const r = assignDispatch([big], [twoTrip], { centerGeo: CENTER });
+
+    expect(r.unassigned).toHaveLength(0);
+    expect(r.trips).toHaveLength(2);
+    expect(r.trips.every((t) => t.vehicle.id === twoTrip.id)).toBe(true);
+    expect(r.trips.map((t) => t.boxes).sort((a, b) => b - a)).toEqual([1200, 173]);
+  });
+
+  it("2회전 가능한 차량이 없으면 쪼개지 않고 통째로 기타에 남긴다", () => {
+    const big = point("미담", 1373, "경기도 용인시 처인구 중부대로 1199", 용인);
+    const oneTrip = vehicle({ 회전수: 1, 최대수량: 1200 });
+
+    const r = assignDispatch([big], [oneTrip], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(0);
+    expect(r.unassigned).toHaveLength(1);
+    expect(r.unassigned[0].boxes).toBe(1373);
+    expect(r.unassigned[0].reason).toBe("적재상한");
+  });
+
+  it("분할 조각은 다른 차량으로 넘어가지 않는다", () => {
+    const big = point("미담", 1373, "경기도 용인시 처인구 중부대로 1199", 용인);
+    const oneTripBig = vehicle({ id: "V01", 회전수: 1, 최대수량: 1200 });
+    const twoTripSmall = vehicle({
+      id: "V02",
+      회전수: 2,
+      최소수량: 50,
+      최대수량: 700,
+      최소업체수: 1,
+      최대업체수: 2,
+    });
+
+    const r = assignDispatch([big], [oneTripBig, twoTripSmall], { centerGeo: CENTER });
+
+    expect(r.unassigned).toHaveLength(0);
+    expect(r.trips.every((t) => t.vehicle.id === "V02")).toBe(true);
+    expect(r.trips.map((t) => t.boxes).sort((a, b) => b - a)).toEqual([700, 673]);
+  });
+});

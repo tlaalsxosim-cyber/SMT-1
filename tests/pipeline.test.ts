@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { splitOversized } from "@/lib/dispatch/assign";
+import { splitChunkSizes } from "@/lib/dispatch/assign";
 import { parseFleet } from "@/lib/parse/fleet";
 import { parseShipment } from "@/lib/parse/shipment";
 import { runPipeline, type RunOutput } from "@/lib/pipeline/run";
@@ -124,11 +124,14 @@ describe("R-06 초과 물량 분할 (AC-08)", () => {
     expect(mid.map((x) => x.boxes)).toEqual([1373]);
   });
 
-  it("분할 규칙 자체는 그대로다 — 1,373 → 1,200 + 173", () => {
+  it("분할 크기 계산 자체는 그대로다 — 1,373 → 1,200 + 173 (2회전 차량 기준)", () => {
     const p = points.find((x) => x.parsedName.company === "미담")!;
-    const { points: split } = splitOversized([p], 1200);
-    expect(split.map((x) => x.boxes)).toEqual([1200, 173]);
-    expect(split.every((x) => x.splitFrom === p.id)).toBe(true);
+    expect(splitChunkSizes(p.boxes, 1200, 2)).toEqual([1200, 173]);
+  });
+
+  it("1회전뿐인 차량으로는 나눌 수 없다 — null", () => {
+    const p = points.find((x) => x.parsedName.company === "미담")!;
+    expect(splitChunkSizes(p.boxes, 1200, 1)).toBeNull();
   });
 });
 

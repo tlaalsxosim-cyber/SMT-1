@@ -64,6 +64,8 @@ export interface RunOptions {
   earlyMode?: EarlyDeliveryMode;
   /** 2회전 이상 회전의 마감 하한 (R-15). 기본 15:00 — 비교 측정용으로만 지정한다 */
   secondTripMinDeadline?: Minutes;
+  /** 같은 회전 안에서 허용하는 최대 인접 거리 (R-07). 기본 45km — 비교 측정용으로만 지정한다 */
+  maxClusterSpreadKm?: number;
   centerAddress?: string;
   /** 지도 경로선까지 그릴지 — 끄면 다중경유지 호출을 건너뛴다 */
   drawRoutes?: boolean;
@@ -153,6 +155,7 @@ export async function runPipeline(
     departAt,
     earlyMode,
     secondTripMinDeadline,
+    maxClusterSpreadKm: opts.maxClusterSpreadKm,
   });
   issues.push(...assigned.issues);
 

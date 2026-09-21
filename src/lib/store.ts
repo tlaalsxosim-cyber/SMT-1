@@ -17,6 +17,7 @@ import type {
   ServerStatus,
 } from "@/lib/api/contracts";
 import { DEFAULT_DEPART_MINUTES } from "@/lib/domain/constants";
+import { recomputeTrip, stopToUnassigned, unassignedToStop } from "@/lib/dispatch/manual-edit";
 
 export type TabKey = "board" | "upload" | "download" | "settings";
 
@@ -59,6 +60,13 @@ interface AppState {
   downloadResult: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   reset: () => void;
+
+  /**
+   * 배차 보드 수동 조정 (2026-09-18 피드백) — 드래그로 배정을 뒤집는다.
+   * `fromTripId`가 null이면 기타(미배차)에서 끌어온 것이다.
+   */
+  moveToTrip: (pointId: string, fromTripId: string | null, toTripId: string) => void;
+  moveToUnassigned: (pointId: string, fromTripId: string) => void;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -234,7 +242,94 @@ export const useApp = create<AppState>((set, get) => ({
       downloaded: false,
       tab: "upload",
     }),
+
+  moveToTrip(pointId, fromTripId, toTripId) {
+    const { result } = get();
+    if (!result || fromTripId === toTripId) return;
+
+    const vehiclesById = new Map(result.vehicles.map((v) => [v.id, v]));
+    const toTrip = result.trips.find((t) => t.id === toTripId);
+    const toVehicle = toTrip && vehiclesById.get(toTrip.vehicleId);
+    if (!toTrip || !toVehicle) return;
+
+    let trips = result.trips;
+    let unassigned = result.unassigned;
+    let movingStop;
+
+    if (fromTripId) {
+      const fromTrip = trips.find((t) => t.id === fromTripId);
+      const fromVehicle = fromTrip && vehiclesById.get(fromTrip.vehicleId);
+      const stop = fromTrip?.stops.find((s) => s.pointId === pointId);
+      if (!fromTrip || !fromVehicle || !stop) return;
+      movingStop = stop;
+
+      const recomputed = recomputeTrip(
+        fromTrip.stops.filter((s) => s.pointId !== pointId),
+        fromVehicle,
+        fromTrip.tripNo,
+        fromTrip.departAt,
+        result.centerGeo
+      );
+      trips = trips.map((t) =>
+        t.id === fromTripId ? { ...t, ...recomputed, distanceSource: "haversine" as const, manualEdit: true } : t
+      );
+    } else {
+      const item = unassigned.find((u) => u.pointId === pointId);
+      if (!item || !item.geo) return; // 좌표 없으면 회전에 배정할 수 없다
+      movingStop = unassignedToStop(item);
+      unassigned = unassigned.filter((u) => u.pointId !== pointId);
+    }
+
+    const target = trips.find((t) => t.id === toTripId)!;
+    const recomputed = recomputeTrip(
+      [...target.stops, movingStop],
+      toVehicle,
+      target.tripNo,
+      target.departAt,
+      result.centerGeo
+    );
+    trips = trips.map((t) =>
+      t.id === toTripId ? { ...t, ...recomputed, distanceSource: "haversine" as const, manualEdit: true } : t
+    );
+
+    set({ result: { ...result, ...summarize(trips, unassigned) } });
+  },
+
+  moveToUnassigned(pointId, fromTripId) {
+    const { result } = get();
+    if (!result) return;
+
+    const vehiclesById = new Map(result.vehicles.map((v) => [v.id, v]));
+    const fromTrip = result.trips.find((t) => t.id === fromTripId);
+    const fromVehicle = fromTrip && vehiclesById.get(fromTrip.vehicleId);
+    const stop = fromTrip?.stops.find((s) => s.pointId === pointId);
+    if (!fromTrip || !fromVehicle || !stop) return;
+
+    const recomputed = recomputeTrip(
+      fromTrip.stops.filter((s) => s.pointId !== pointId),
+      fromVehicle,
+      fromTrip.tripNo,
+      fromTrip.departAt,
+      result.centerGeo
+    );
+    const trips = result.trips.map((t) =>
+      t.id === fromTripId ? { ...t, ...recomputed, distanceSource: "haversine" as const, manualEdit: true } : t
+    );
+    const unassigned = [...result.unassigned, stopToUnassigned(stop)];
+
+    set({ result: { ...result, ...summarize(trips, unassigned) } });
+  },
 }));
+
+function summarize(trips: DispatchResponse["trips"], unassigned: DispatchResponse["unassigned"]) {
+  return {
+    trips,
+    unassigned,
+    assignedBoxes: trips.reduce((s, t) => s + t.boxes, 0),
+    unassignedBoxes: unassigned.reduce((s, u) => s + u.boxes, 0),
+    usedTrips: trips.filter((t) => t.stops.length > 0).length,
+  };
+}
 
 /** 결과가 있는데 아직 내려받지 않았으면 true — 이탈 경고 대상 (FR-51) */
 export function useUnsavedResult(): boolean {

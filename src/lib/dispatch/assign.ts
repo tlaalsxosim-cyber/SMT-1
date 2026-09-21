@@ -4,7 +4,7 @@
  * TMAP은 "차량 한 대 안의 방문 순서"만 정한다. **어느 차량이 어디를 가는가**는 여기서 정한다.
  *
  * 알고리즘 개요
- *   1. 전처리 — 좌표 없는 배송지 제외(R-13), 초과 물량 분할(R-06), 조기납품 판정(R-08)
+ *   1. 전처리 — 좌표 없는 배송지 제외(R-13), 다회전 차량 전용 분할(R-06), 조기납품 판정(R-08)
  *   2. 회전 슬롯 생성 — 적재 상한이 큰 차량부터, 같은 차량은 회전 순서대로
  *   3. 슬롯마다 모든 후보를 씨앗으로 삼아 클러스터를 키워 보고 가장 효율적인 조합을 채택
  *   4. 각 조합은 직선거리 근사로 시간 실현성을 검증(FR-30) — 최종 검증은 TMAP arriveTime
@@ -14,12 +14,18 @@
  *   PRD는 모든 회전의 도착지를 기사 거주지로 지정한다. 그러나 2회전 차량의 1회전은
  *   재상차를 위해 센터로 복귀해야 하므로(R-09), **마지막 회전만 도착지를 기사 거주지로,
  *   그 앞 회전은 센터로** 둔다. 이렇게 해야 귀가 거리와 2회전 출발 시각이 모두 맞는다.
+ *
+ * R-06 분할 정책 (현업 확정 2026-09-18)
+ *   기본은 **한 차량에 한 업체 물량 전부**다. 회전수 2 이상인 차량 한 대를 찾아 그 차량의
+ *   회전에 걸쳐서만 나눠 싣고, 조각이 다른 차량으로 넘어가는 일은 없다. 그런 차량이 없으면
+ *   R-18처럼 쪼개지 않고 통째로 기타에 남긴다 — "분할잔여"가 구조적으로 발생하지 않게 한다.
  */
 
 import {
   DEFAULT_DEPART_MINUTES,
   EARLY_DELIVERY_RULES,
   LARGE_VEHICLE_TONNAGE,
+  MAX_CLUSTER_SPREAD_KM,
   METRO_SOUTH_LIMIT_LAT,
   RELOAD_MINUTES,
   SECOND_TRIP_MIN_DEADLINE,
@@ -51,6 +57,8 @@ export interface AssignOptions {
   secondTripMinDeadline?: Minutes;
   /** 센터에서 이 거리(km)를 넘으면 원거리로 분류한다 */
   farThresholdKm?: number;
+  /** 같은 회전에 묶을 때 이미 담긴 배송지 중 가장 가까운 곳과의 거리(km) 상한 (R-07) */
+  maxClusterSpreadKm?: number;
 }
 
 export interface PlannedTrip {
@@ -79,54 +87,6 @@ export interface AssignResult {
 // 전처리
 // ─────────────────────────────────────────────────────────────
 
-/**
- * 초과 물량 자동 분할 (R-06)
- * 단일 납품처가 전 차량의 최대 적재를 넘으면 상한 단위로 쪼갠다.
- * 예) 미담 1,373 → 1,200 + 173
- */
-export function splitOversized(
-  points: DeliveryPoint[],
-  maxCapacity: number
-): { points: DeliveryPoint[]; issues: Issue[] } {
-  const issues: Issue[] = [];
-  const out: DeliveryPoint[] = [];
-
-  for (const p of points) {
-    if (p.boxes <= maxCapacity) {
-      out.push(p);
-      continue;
-    }
-
-    const chunks: number[] = [];
-    let left = p.boxes;
-    while (left > maxCapacity) {
-      chunks.push(maxCapacity);
-      left -= maxCapacity;
-    }
-    if (left > 0) chunks.push(left);
-
-    chunks.forEach((boxes, i) => {
-      out.push({
-        ...p,
-        id: `${p.id}#${i + 1}`,
-        boxes,
-        splitFrom: p.id,
-        splitIndex: i + 1,
-      });
-    });
-
-    issues.push({
-      level: "info",
-      code: "R-06",
-      message: `최대 적재(${maxCapacity})를 초과해 ${chunks.length}개로 분할했습니다`,
-      subject: p.parsedName.company,
-      detail: `${p.boxes} → ${chunks.join(" + ")}`,
-    });
-  }
-
-  return { points: out, issues };
-}
-
 /** 조기납품 판정 (R-08 / OI-2) */
 export function isEarlyDelivery(p: DeliveryPoint, mode: EarlyDeliveryMode): boolean {
   if (p.time.windows.length === 0) return false;
@@ -146,6 +106,89 @@ export function allowedOnSecondTrip(p: DeliveryPoint, minDeadline: Minutes): boo
   const deadline = latestDeadline(p.time.windows);
   if (deadline === null) return true;
   return deadline >= minDeadline;
+}
+
+/**
+ * 초과 물량을 몇 조각으로 나눌지 계산한다 (R-06).
+ * 차량 한 대의 회전 수(`maxChunks`)로 다 못 나누면 null — 그 차량은 후보가 아니다.
+ * 예) 1,373박스를 최대수량 1,200·회전수 2인 차량에 → [1200, 173]
+ */
+export function splitChunkSizes(
+  boxes: number,
+  capacity: number,
+  maxChunks: number
+): number[] | null {
+  const chunks: number[] = [];
+  let left = boxes;
+  while (left > 0) {
+    if (chunks.length >= maxChunks) return null;
+    const take = Math.min(left, capacity);
+    chunks.push(take);
+    left -= take;
+  }
+  return chunks;
+}
+
+function makeSplitChunk(p: DeliveryPoint, boxes: number, index: number, vehicleId: string): DeliveryPoint {
+  return { ...p, id: `${p.id}#${index}`, boxes, splitFrom: p.id, splitIndex: index, splitVehicleId: vehicleId };
+}
+
+/**
+ * 다회전 분할 대상 선정 (R-06)
+ *
+ * 기본은 **한 차량에 한 업체 물량 전부**다. 전 차량의 최대수량을 넘는 물량만,
+ * 회전수 2 이상인 차량 한 대를 찾아 그 차량의 회전에 걸쳐서만 나눠 싣는다.
+ * 조각을 다른 차량 후보 풀에 흘려보내지 않는다 — 그래야 조각이 흩어지거나
+ * 실을 회전이 안 남는 "분할잔여"가 구조적으로 생기지 않는다.
+ * 맞는 차량이 없으면(또는 이미 다른 초과 물량이 그 차량을 쓰고 있으면) R-18처럼
+ * 쪼개지 않고 통째로 남겨 기타에서 사유와 함께 보여 준다.
+ */
+function reserveMultiTripSplits(
+  points: DeliveryPoint[],
+  vehicles: Vehicle[],
+  maxCapacity: number,
+  secondTripMinDeadline: Minutes
+): { points: DeliveryPoint[]; issues: Issue[] } {
+  const issues: Issue[] = [];
+  const hostOrder = [...vehicles]
+    .filter((v) => v.회전수 >= 2)
+    .sort((a, b) => b.최대수량 - a.최대수량 || a.id.localeCompare(b.id));
+  const usedVehicles = new Set<string>();
+
+  const out: DeliveryPoint[] = [];
+  for (const p of points) {
+    if (p.boxes <= maxCapacity) {
+      out.push(p);
+      continue;
+    }
+
+    const host = hostOrder.find(
+      (v) =>
+        !usedVehicles.has(v.id) &&
+        (p.maxTonnage === null || v.tonnage <= p.maxTonnage) &&
+        allowedOnSecondTrip(p, secondTripMinDeadline) &&
+        splitChunkSizes(p.boxes, v.최대수량, v.회전수) !== null
+    );
+
+    if (!host) {
+      out.push(p);
+      continue;
+    }
+
+    usedVehicles.add(host.id);
+    const chunkSizes = splitChunkSizes(p.boxes, host.최대수량, host.회전수)!;
+    chunkSizes.forEach((boxes, i) => out.push(makeSplitChunk(p, boxes, i + 1, host.id)));
+
+    issues.push({
+      level: "info",
+      code: "R-06",
+      message: `최대 적재(${host.최대수량})를 초과해 ${host.기사명} 차량 회전에 나눠 싣습니다`,
+      subject: p.parsedName.company,
+      detail: `${p.boxes} → ${chunkSizes.join(" + ")} (${chunkSizes.length}회전, 다른 차량으로는 넘기지 않음)`,
+    });
+  }
+
+  return { points: out, issues };
 }
 
 /**
@@ -232,6 +275,8 @@ interface ClusterContext {
   earlySet: Set<string>;
   /** 2회전 이상이면 마감 하한을 적용한다 (R-15) */
   secondTripMinDeadline: Minutes | null;
+  /** 같은 회전 안에서 허용하는 최대 인접 거리(km) (R-07) */
+  maxSpreadKm: number;
 }
 
 interface Cluster {
@@ -284,6 +329,13 @@ function growCluster(
         return false;
       // 같은 납품처의 다른 분할 조각은 한 회전에 같이 싣지 않는다
       if (c.splitFrom && chosen.some((x) => x.splitFrom === c.splitFrom)) return false;
+      /**
+       * R-07 — 이미 담긴 배송지 **전부**와 maxSpreadKm 이내여야 후보가 된다.
+       * 가장 가까운 곳만 보면(체이닝) 한 걸음씩은 가까워도 전체 회전의 양 끝은
+       * 수십 km씩 벌어질 수 있다. 매 후보를 이미 담긴 전원과 대조해야 회전
+       * 전체의 지리적 범위가 실제로 좁게 유지된다.
+       */
+      if (chosen.some((x) => distKm(x.geo!, c.geo!) > ctx.maxSpreadKm)) return false;
       return true;
     });
 
@@ -390,6 +442,7 @@ export function assignDispatch(
   const secondTripMinDeadline = opts.secondTripMinDeadline ?? SECOND_TRIP_MIN_DEADLINE;
   // 수도권 끝(고양·김포 ~120km)은 정상 배송권이다. 익산(약 210km)만 걸리도록 둔다.
   const farThresholdKm = opts.farThresholdKm ?? 200;
+  const maxClusterSpreadKm = opts.maxClusterSpreadKm ?? MAX_CLUSTER_SPREAD_KM;
   const issues: Issue[] = [];
 
   // ── 1. 전처리
@@ -419,7 +472,12 @@ export function assignDispatch(
   }
 
   const maxCapacity = Math.max(...vehicles.map((v) => v.최대수량));
-  const { points: workingPoints, issues: splitIssues } = splitOversized(metroPoints, maxCapacity);
+  const { points: workingPoints, issues: splitIssues } = reserveMultiTripSplits(
+    metroPoints,
+    vehicles,
+    maxCapacity,
+    secondTripMinDeadline
+  );
   issues.push(...splitIssues);
 
   const earlySet = new Set(
@@ -478,6 +536,7 @@ export function assignDispatch(
       allowEarly,
       earlySet,
       secondTripMinDeadline: deadlineFloor,
+      maxSpreadKm: maxClusterSpreadKm,
     };
 
     // 후보 필터 — 하드 제약을 통과하는 것만
@@ -493,6 +552,11 @@ export function assignDispatch(
         const pair = pool.some((q) => q.id !== p.id && isSameSite(p, q));
         if (!pair) return false;
       }
+      /**
+       * R-06 — 다회전 분할 조각은 **예약된 차량**에서만 후보가 된다.
+       * 그래야 조각이 다른 차량으로 흩어지지 않는다.
+       */
+      if (p.splitVehicleId && p.splitVehicleId !== vehicle.id) return false;
       if (earlySet.has(p.id) && !allowEarly) return false;
       if (deadlineFloor !== null && !allowedOnSecondTrip(p, deadlineFloor)) return false;
       return true;
@@ -579,6 +643,12 @@ export function assignDispatch(
       timeRaw: p.time.columnRaw ?? p.parsedName.conditionText,
       reason: "수도권외",
       note: "천안 이남이라 지입 배차에서 제외했습니다 — 용차 대상입니다 (R-18)",
+      geo: p.geo,
+      windows: p.time.windows,
+      tags: p.tags,
+      maxTonnage: p.maxTonnage,
+      hasExplicitStart: p.time.hasExplicitStart,
+      contact: p.contact,
     });
   }
 
@@ -592,6 +662,11 @@ export function assignDispatch(
       timeRaw: p.time.columnRaw ?? p.parsedName.conditionText,
       reason: "주소미확인",
       note: "지오코딩에 실패해 배차 대상에서 제외했습니다 — 주소확인필요 시트를 확인하십시오",
+      windows: p.time.windows,
+      tags: p.tags,
+      maxTonnage: p.maxTonnage,
+      hasExplicitStart: p.time.hasExplicitStart,
+      contact: p.contact,
     });
   }
 
@@ -621,6 +696,13 @@ function diagnose(
     address: p.address,
     boxes: p.boxes,
     timeRaw: p.time.columnRaw ?? p.parsedName.conditionText,
+    // 담당자가 드래그로 회전에 수동 배정할 때 필요한 원본 정보 (좌표가 있어야 배정 가능)
+    geo: p.geo,
+    windows: p.time.windows,
+    tags: p.tags,
+    maxTonnage: p.maxTonnage,
+    hasExplicitStart: p.time.hasExplicitStart,
+    contact: p.contact,
   };
 
   const centerKm = p.geo ? distKm(ctx.centerGeo, p.geo) : 0;
@@ -644,13 +726,32 @@ function diagnose(
     };
   }
 
-  // 적재 상한 초과
+  // 적재 상한 초과 — 단일 회전으로 실을 수 있는 차량이 없다
   const fits = vehicles.filter((v) => p.boxes <= v.최대수량);
   if (fits.length === 0) {
+    /**
+     * R-06 — 회전수 2 이상인 차량이 있었다면 다회전으로 나눠 실을 수 있었다.
+     * 그런데도 통째로 남았다는 건 다른 초과 물량이 그 차량을 먼저 예약했다는 뜻이다
+     * (한 차량은 초과 물량 하나만 맡는다). 사유를 분명히 알려 준다.
+     */
+    const splitHostExists = vehicles.some(
+      (v) =>
+        v.회전수 >= 2 &&
+        (p.maxTonnage === null || v.tonnage <= p.maxTonnage) &&
+        allowedOnSecondTrip(p, ctx.secondTripMinDeadline) &&
+        splitChunkSizes(p.boxes, v.최대수량, v.회전수) !== null
+    );
+    if (splitHostExists) {
+      return {
+        ...base,
+        reason: "분할잔여",
+        note: `${p.boxes}박스는 2회전 이상 차량에 나눠 실어야 하지만, 그런 차량을 다른 초과 물량이 이미 쓰고 있어 배정하지 못했습니다`,
+      };
+    }
     return {
       ...base,
       reason: "적재상한",
-      note: `${p.boxes}박스는 최대 적재 차량으로도 실을 수 없습니다`,
+      note: `${p.boxes}박스는 최대 적재 차량으로도(2회전을 동원해도) 실을 수 없습니다`,
     };
   }
 

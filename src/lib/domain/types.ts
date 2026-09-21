@@ -193,6 +193,8 @@ export interface DeliveryPoint {
   /** 초과 물량 분할로 생성된 조각이면 원본 id (R-06) */
   splitFrom?: string;
   splitIndex?: number;
+  /** 분할 조각이 배정된 차량 id — 이 차량의 회전에서만 후보가 된다 (R-06, 다른 차량으로 넘기지 않음) */
+  splitVehicleId?: string;
 }
 
 export interface ShipmentParseResult {
@@ -261,7 +263,8 @@ export type UnassignedReason =
   | "차량제약"
   | "대형차단독"
   | "수도권외"
-  | "적재하한미달";
+  | "적재하한미달"
+  | "수동조정";
 
 export interface Stop {
   seq: number;
@@ -283,6 +286,8 @@ export interface Stop {
   timeOk: boolean | null;
   contact: string | null;
   geo?: GeoResult;
+  /** 담당자가 드래그로 이 회전에 수동 배정했는지 — 시간·거리는 근사 재계산값 */
+  manual?: boolean;
 }
 
 export interface Trip {
@@ -305,6 +310,8 @@ export interface Trip {
   homeAt: Minutes | null;
   /** 실도로 값이 반영되었는지 (직선 근사 → TMAP 교체, FR-30/44) */
   distanceSource: "haversine" | "tmap";
+  /** 담당자가 수동으로 배송지를 옮겨 이 회전을 조정했는지 — 거리·도착시각이 직선 근사로 재계산됨 */
+  manualEdit?: boolean;
 }
 
 export interface UnassignedItem {
@@ -316,6 +323,13 @@ export interface UnassignedItem {
   timeRaw: string;
   reason: UnassignedReason;
   note: string;
+  /** 회전에 수동 배정하려면 필요 — 없으면(주소미확인) 드래그로 배정할 수 없다 */
+  geo?: GeoResult;
+  windows?: TimeWindow[];
+  tags?: DeliveryTag[];
+  maxTonnage?: number | null;
+  hasExplicitStart?: boolean;
+  contact?: string | null;
 }
 
 export interface ApiUsage {

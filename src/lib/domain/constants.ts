@@ -62,6 +62,20 @@ export const LARGE_VEHICLE_TONNAGE = 5;
  */
 export const METRO_SOUTH_LIMIT_LAT = 36.9;
 
+/**
+ * 같은 회전에 묶을 때 허용하는 최대 인접 거리 (R-07 강화) — km
+ *
+ * 기존에는 조합 탐색이 "적재율을 채우는가"만 따져서, 이미 담긴 배송지와 아무리
+ * 멀어도 시간창만 맞으면 같은 회전에 묶였다. 그 결과 한 기사가 수도권 이쪽 끝과
+ * 저쪽 끝을 오가는 조합이 나올 수 있었다. 여기서 "이미 담긴 배송지 중 가장 가까운
+ * 곳"과의 거리가 이 값을 넘는 후보는 애초에 조합 후보에서 뺀다.
+ *
+ * 현업 확정값은 아니다(R-07은 OI-1과 마찬가지로 정확한 권역 정의가 미확정).
+ * `npm run compare`로 실데이터 배차량 영향을 측정해 고른 값이며, 필요하면
+ * `AssignOptions.maxClusterSpreadKm`로 세션에서 덮어쓸 수 있다.
+ */
+export const MAX_CLUSTER_SPREAD_KM = 45;
+
 /** 납품처 1곳당 하차 소요 시간 가정 — TMAP arriveTime 보정용 */
 export const UNLOAD_MINUTES = 20;
 
