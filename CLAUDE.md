@@ -133,6 +133,12 @@ DB·ORM·파일 저장소가 없고, `localStorage`/`sessionStorage`/IndexedDB�
 **`earliestDeadline` vs `latestDeadline`** — 점심으로 나뉜 시간창에서 전자는 첫 구간 종료,
 후자는 실질 마감입니다. R-15(2회전 마감 하한) 판정에는 **반드시 `latestDeadline`**을 쓰십시오.
 
+**`납품처메일주소`는 사실 `납품시간`입니다** — ERP 원본 최신판(2026-09-21 갱신)은 `납품시간`
+컬럼을 통째로 빼고 그 자리에 `납품처메일주소`라는 이름으로 똑같은 시간창 문자열을 담아
+보냅니다("~12:00" 등, 실제 이메일 형식은 섞여 있지 않음을 336행 전량으로 확인). `shipment.ts`의
+`withDeliveryTimeAlias`가 `납품시간` 컬럼이 없을 때만 이걸 `납품시간`으로 바꿔 읽습니다.
+`납품시간` 컬럼이 있는 구 양식 파일에서는 이 별칭을 쓰지 않습니다.
+
 **선택 컬럼이 파일에 없으면 `rec[header]`는 `undefined`, `null`이 아닙니다** — `workbook.ts`의
 `str`/`num`이 `null`만 걸러내던 시절엔, 표준 컬럼(`SHIPMENT_COLUMNS`)에 있지만 실제 업로드
 파일에는 없는 컬럼을 읽으면 `String(undefined)`가 `"undefined"` 문자열로 값에 들어갔습니다

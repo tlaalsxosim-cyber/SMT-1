@@ -70,6 +70,36 @@ const REQUIRED_COLUMNS = [
   "재고단위수량",
 ] as const;
 
+/**
+ * `납품시간` 컬럼 별칭 — `납품처메일주소` (FR-11 확장, 2026-09-21)
+ *
+ * ERP 원본 최신판은 `납품시간` 컬럼이 통째로 없고, 같은 자리를 `납품처메일주소`라는
+ * 이름의 컬럼이 대신한다. 컬럼명만 바뀌었을 뿐 값은 그대로 시간창 문자열이다
+ * ("~12:00", "8:00~9:30" 등) — 실데이터 336행 전량에 실제 이메일 형식(`@` 포함)이
+ * 하나도 없음을 확인했다. `납품시간` 컬럼이 이미 있는 파일(구 양식)에서는 이 별칭을
+ * 쓰지 않고 그 컬럼을 그대로 쓴다 — 둘 다 있는 경우를 대비해 `납품시간`을 우선한다.
+ */
+const DELIVERY_TIME_ALIAS_COLUMN = "납품처메일주소";
+
+function withDeliveryTimeAlias(table: SheetTable, issues: Issue[]): SheetTable {
+  if (table.headers.includes("납품시간") || !table.headers.includes(DELIVERY_TIME_ALIAS_COLUMN)) {
+    return table;
+  }
+  issues.push({
+    level: "info",
+    code: "FR-11",
+    message: `\`납품시간\` 컬럼이 없어 \`${DELIVERY_TIME_ALIAS_COLUMN}\` 컬럼 값을 납품시간으로 대신 씁니다`,
+  });
+  return {
+    ...table,
+    headers: table.headers.map((h) => (h === DELIVERY_TIME_ALIAS_COLUMN ? "납품시간" : h)),
+    rows: table.rows.map((r) => {
+      const { [DELIVERY_TIME_ALIAS_COLUMN]: aliasValue, ...rest } = r;
+      return { ...rest, 납품시간: aliasValue };
+    }),
+  };
+}
+
 function classifyExclusion(배송방법: string): ExclusionReason {
   if (배송방법.includes("픽업")) return "픽업";
   if (배송방법.includes("이체")) return "이체";
@@ -83,8 +113,9 @@ export async function parseShipment(data: ArrayBuffer | Buffer): Promise<Shipmen
   return buildShipmentResult(table);
 }
 
-export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
+export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
   const issues: Issue[] = [];
+  const table = withDeliveryTimeAlias(rawTable, issues);
 
   // ── 1. 필수 컬럼 검증 (FR-02)
   const missing = REQUIRED_COLUMNS.filter((c) => !table.headers.includes(c));
