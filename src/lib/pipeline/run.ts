@@ -41,6 +41,7 @@ import { assignDispatch, type PlannedTrip } from "@/lib/dispatch/assign";
 import { distKm } from "@/lib/dispatch/distance";
 import { applyWaiting } from "@/lib/dispatch/waiting";
 import { validateDispatch } from "@/lib/dispatch/validate";
+import { deriveShipmentOrigin } from "@/lib/parse/warehouse-address";
 import { applyAiConditions, selectForAi } from "@/lib/structure/enrich";
 import { generateBriefing, hasApiKey, structureConditions, suggestAddresses } from "@/lib/structure/llm";
 import { isWithin } from "@/lib/structure/time-window";
@@ -121,7 +122,17 @@ export async function runPipeline(
   }
 
   // ── [3] 좌표 변환
-  const centerGeo = await resolveCenter({ demo: opts.demo, address: opts.centerAddress });
+  /**
+   * 출고장소코드(BA열)로 등록된 출고 주소를 찾는다 (FR-54). 담당자가 설정 탭에서
+   * 센터 주소를 직접 지정했으면 그게 우선이고, 아니면 출고 데이터에서 유도한
+   * 주소를 쓴다 — 등록된 주소가 없거나 여러 곳으로 갈리면 기본 센터 주소를 그대로 쓴다.
+   */
+  const origin = deriveShipmentOrigin(points);
+  issues.push(...origin.issues);
+  const centerGeo = await resolveCenter({
+    demo: opts.demo,
+    address: opts.centerAddress || origin.address || undefined,
+  });
   if (!opts.demo) counter.record("geocode");
 
   const vehicles = await geocodeVehicles(fleet.vehicles, opts.demo, issues, addressIssues);

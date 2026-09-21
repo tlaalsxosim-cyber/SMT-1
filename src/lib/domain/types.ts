@@ -189,6 +189,10 @@ export interface DeliveryPoint {
   tags: DeliveryTag[];
   /** 차량 톤수 제한 (예: 3.5 = 3.5톤 이하만) — R-10 */
   maxTonnage: number | null;
+  /** 출고장소코드 (BA열) — 출고 창고 주소지 마스터의 조인 키. 컬럼이 없는 파일이면 null (FR-54) */
+  출고장소코드?: string | null;
+  /** 출고장소명 (BB열) — 표시용, 판단에는 코드만 쓴다 */
+  출고장소?: string | null;
   geo?: GeoResult;
   /** 초과 물량 분할로 생성된 조각이면 원본 id (R-06) */
   splitFrom?: string;

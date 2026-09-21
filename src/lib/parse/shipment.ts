@@ -56,6 +56,8 @@ export const SHIPMENT_COLUMNS = [
   "비고(내역)",
   "출고창고코드",
   "출고창고",
+  "출고장소코드",
+  "출고장소",
 ] as const;
 
 /** 배차 로직이 반드시 필요로 하는 컬럼 — 없으면 업로드 거부 (FR-02) */
@@ -156,6 +158,8 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
     units: Set<string>;
     warehouses: Set<string>;
     itemNames: Set<string>;
+    siteCodes: Set<string>;
+    siteNames: Set<string>;
   }
 
   const buckets = new Map<string, Bucket>();
@@ -189,6 +193,8 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
         units: new Set(),
         warehouses: new Set(),
         itemNames: new Set(),
+        siteCodes: new Set(),
+        siteNames: new Set(),
       };
       buckets.set(key, b);
     }
@@ -215,6 +221,12 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
 
     const item = str(rec["품명"] as never);
     if (item) b.itemNames.add(item);
+
+    // 출고장소코드 (BA열) — 출고 창고 주소지 마스터의 조인 키 (FR-54)
+    const siteCode = str(rec["출고장소코드"] as never);
+    if (siteCode) b.siteCodes.add(siteCode);
+    const siteName = str(rec["출고장소"] as never);
+    if (siteName) b.siteNames.add(siteName);
   }
 
   // ── 4~5. 구조화 + 교차 검증
@@ -309,6 +321,17 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
       });
     }
 
+    // 출고장소코드(BA열)가 같은 납품처 안에서 갈리면 대표값을 정할 수 없다 (FR-54)
+    if (b.siteCodes.size > 1) {
+      issues.push({
+        level: "warning",
+        code: "FR-54",
+        message: "동일 납품처에 출고장소코드가 여러 개입니다 — 첫 값을 사용합니다",
+        subject: parsedName.company,
+        detail: [...b.siteCodes].join(" / "),
+      });
+    }
+
     // 시간창 불일치 — 비고(건) > 납품처명 > 납품시간 컬럼 순으로 채택 (§5.3-(1) / OI-3)
     if (time.mismatch === "boundary") {
       issues.push({
@@ -360,6 +383,8 @@ export function buildShipmentResult(table: SheetTable): ShipmentParseResult {
       time,
       tags,
       maxTonnage,
+      출고장소코드: [...b.siteCodes][0] ?? null,
+      출고장소: [...b.siteNames][0] ?? null,
     });
   }
 

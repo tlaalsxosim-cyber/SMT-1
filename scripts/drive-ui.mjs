@@ -118,12 +118,14 @@ try {
   await page.screenshot({ path: `${OUT}/4-board.png`, fullPage: true });
 
   // ── 8. 회전 강조 (마커 클릭)
+  // "전체 보기"는 지도 오버레이 버튼과 지도 범례 버튼, 둘 다 있을 수 있다 — 지도 오버레이(첫 번째)만 본다
   await markerLocator.nth(1).click();
   await page.waitForTimeout(300);
-  const focusVisible = await page.getByRole("button", { name: "전체 보기" }).isVisible();
+  const resetButton = page.getByRole("button", { name: "전체 보기" }).first();
+  const focusVisible = await resetButton.isVisible();
   log(`회전 강조 인터랙션 ${focusVisible ? "OK" : "미동작"}`);
   await page.screenshot({ path: `${OUT}/5-board-focus.png` });
-  if (focusVisible) await page.getByRole("button", { name: "전체 보기" }).click();
+  if (focusVisible) await resetButton.click();
 
   // ── 9. 기타(미배차) 패널
   await page.getByRole("tab", { name: /기타\(미배차\)/ }).click();

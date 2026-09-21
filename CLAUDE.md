@@ -133,6 +133,14 @@ DB·ORM·파일 저장소가 없고, `localStorage`/`sessionStorage`/IndexedDB�
 **`earliestDeadline` vs `latestDeadline`** — 점심으로 나뉜 시간창에서 전자는 첫 구간 종료,
 후자는 실질 마감입니다. R-15(2회전 마감 하한) 판정에는 **반드시 `latestDeadline`**을 쓰십시오.
 
+**선택 컬럼이 파일에 없으면 `rec[header]`는 `undefined`, `null`이 아닙니다** — `workbook.ts`의
+`str`/`num`이 `null`만 걸러내던 시절엔, 표준 컬럼(`SHIPMENT_COLUMNS`)에 있지만 실제 업로드
+파일에는 없는 컬럼을 읽으면 `String(undefined)`가 `"undefined"` 문자열로 값에 들어갔습니다
+(2026-09-21, FR-54 추가 중 발견 — 기존 컬럼 중에는 지금까지 실데이터가 전부 채워져 있어서 드러나지
+않았을 뿐입니다). `str`/`num`은 이제 `undefined`도 `null`과 같이 거릅니다. `rec[...] as never`로
+캐스트해서 부르는 자리가 많으니, 새 선택 컬럼을 추가할 때 이 함수들을 거치지 않고 직접
+`String(rec[...])`을 쓰지 마십시오.
+
 **R-07 인접 거리 제한은 "가장 가까운 곳"이 아니라 "담긴 전부"와 대조합니다** — `assign.ts`의
 `growCluster`가 후보를 붙일 때 이미 담긴 배송지 중 **한 곳이라도** `MAX_CLUSTER_SPREAD_KM`(45km)를
 넘으면 후보에서 뺍니다. 가장 가까운 배송지만 보고 판단하면 한 걸음씩은 가까워도 체이닝으로

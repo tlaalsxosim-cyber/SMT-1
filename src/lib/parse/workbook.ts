@@ -97,14 +97,20 @@ export function readSheet(wb: ExcelJS.Workbook, sheetName?: string): SheetTable 
 // 셀 값 접근 헬퍼
 // ─────────────────────────────────────────────────────────────
 
-export function str(v: Cell): string | null {
-  if (v === null) return null;
+/**
+ * 선택 컬럼이 파일에 아예 없으면 `rec[header]`가 `undefined`다(`null`이 아니다) —
+ * `Record<string, unknown>`으로 느슨하게 캐스트해서 호출하는 자리가 많아 타입만으로는
+ * 안 걸러진다. null과 undefined를 여기서 같이 걸러야 "undefined" 문자열이 값으로
+ * 들어가는 사고를 막는다.
+ */
+export function str(v: Cell | undefined): string | null {
+  if (v === null || v === undefined) return null;
   const s = String(v).normalize("NFC").trim();
   return s.length ? s : null;
 }
 
-export function num(v: Cell): number | null {
-  if (v === null) return null;
+export function num(v: Cell | undefined): number | null {
+  if (v === null || v === undefined) return null;
   if (typeof v === "number") return v;
   const n = Number(String(v).replace(/[,\s]/g, ""));
   return Number.isFinite(n) ? n : null;
