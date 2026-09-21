@@ -673,6 +673,7 @@ function UnassignedPanel({
   onDropUnassigned: (payload: DragPayload) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
+  const [collapsedRegions, setCollapsedRegions] = useState<Set<string>>(new Set());
   const byRegion = useMemo(() => {
     const map = new Map<string, UnassignedItem[]>();
     for (const u of items) {
@@ -689,6 +690,19 @@ function UnassignedPanel({
   }, [items]);
 
   const unassignedBoxes = items.reduce((s, x) => s + x.boxes, 0);
+
+  const toggleRegion = (region: string) => {
+    setCollapsedRegions((prev) => {
+      const next = new Set(prev);
+      if (next.has(region)) next.delete(region);
+      else next.add(region);
+      return next;
+    });
+  };
+  const allCollapsed = byRegion.length > 0 && collapsedRegions.size === byRegion.length;
+  const toggleAll = () => {
+    setCollapsedRegions(allCollapsed ? new Set() : new Set(byRegion.map((r) => r.region)));
+  };
 
   const dropHandlers = {
     onDragOver: (e: DragEvent) => {
@@ -717,73 +731,99 @@ function UnassignedPanel({
 
   return (
     <Card className={cn(dragOver && "ring-2 ring-primary")} {...dropHandlers}>
-      <CardHeader>
-        <CardTitle className="text-base">기타 (미배차) — 권역별</CardTitle>
-        <CardDescription>
-          총 {n(unassignedBoxes)} 박스 ({pct(unassignedBoxes / Math.max(1, totalBoxes), 1)}).
-          권역별 소계로 용차 1대에 묶을 수 있는지 판단하십시오. 용차 투입은 담당자 결정입니다 (R-12).
-          업체를 끌어다 기사 티켓에 놓으면 수동으로 배정할 수 있습니다.
-        </CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-2">
+        <div>
+          <CardTitle className="text-base">기타 (미배차) — 권역별</CardTitle>
+          <CardDescription>
+            총 {n(unassignedBoxes)} 박스 ({pct(unassignedBoxes / Math.max(1, totalBoxes), 1)}).
+            권역별 소계로 용차 1대에 묶을 수 있는지 판단하십시오. 용차 투입은 담당자 결정입니다 (R-12).
+            업체를 끌어다 기사 티켓에 놓으면 수동으로 배정할 수 있습니다.
+          </CardDescription>
+        </div>
+        <Button variant="ghost" size="sm" className="shrink-0" onClick={toggleAll}>
+          {allCollapsed ? (
+            <>
+              <ChevronDown /> 전체 펼치기
+            </>
+          ) : (
+            <>
+              <ChevronUp /> 전체 접기
+            </>
+          )}
+        </Button>
       </CardHeader>
       <CardContent className="space-y-3">
-        {byRegion.map(({ region, list, boxes }) => (
-          <div key={region} className="rounded-md border">
-            <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Package className="size-3.5 text-muted-foreground" />
-                <span className="text-sm font-semibold">{region}</span>
-                <Badge variant="secondary" className="text-[10px]">
-                  {list.length}개사
-                </Badge>
+        {byRegion.map(({ region, list, boxes }) => {
+          const collapsed = collapsedRegions.has(region);
+          return (
+            <div key={region} className="rounded-md border">
+              <div
+                className="flex cursor-pointer items-center justify-between border-b bg-muted/40 px-3 py-2"
+                onClick={() => toggleRegion(region)}
+              >
+                <div className="flex items-center gap-2">
+                  {collapsed ? (
+                    <ChevronRight className="size-3.5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="size-3.5 text-muted-foreground" />
+                  )}
+                  <Package className="size-3.5 text-muted-foreground" />
+                  <span className="text-sm font-semibold">{region}</span>
+                  <Badge variant="secondary" className="text-[10px]">
+                    {list.length}개사
+                  </Badge>
+                </div>
+                <span className="text-sm font-semibold tabular-nums">{n(boxes)} 박스</span>
               </div>
-              <span className="text-sm font-semibold tabular-nums">{n(boxes)} 박스</span>
-            </div>
-            <div className="divide-y">
-              {list.map((u) => {
-                const draggableItem = !!u.geo;
-                return (
-                  <div
-                    key={u.pointId}
-                    draggable={draggableItem}
-                    onDragStart={(e) =>
-                      draggableItem && setDragPayload(e, { pointId: u.pointId, from: "unassigned" })
-                    }
-                    className={cn(
-                      "px-3 py-2",
-                      draggableItem ? "cursor-grab active:cursor-grabbing" : "opacity-70"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex min-w-0 items-start gap-2">
-                        {draggableItem && (
-                          <GripVertical className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
+              {!collapsed && (
+                <div className="divide-y">
+                  {list.map((u) => {
+                    const draggableItem = !!u.geo;
+                    return (
+                      <div
+                        key={u.pointId}
+                        draggable={draggableItem}
+                        onDragStart={(e) =>
+                          draggableItem && setDragPayload(e, { pointId: u.pointId, from: "unassigned" })
+                        }
+                        className={cn(
+                          "px-3 py-2",
+                          draggableItem ? "cursor-grab active:cursor-grabbing" : "opacity-70"
                         )}
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium">{u.company}</div>
-                          <div className="truncate text-[11px] text-muted-foreground">
-                            {u.address}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex min-w-0 items-start gap-2">
+                            {draggableItem && (
+                              <GripVertical className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/60" />
+                            )}
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">{u.company}</div>
+                              <div className="truncate text-[11px] text-muted-foreground">
+                                {u.address}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="text-sm tabular-nums">{n(u.boxes)}</div>
+                            <Badge variant="outline" className="text-[10px]">
+                              {u.reason}
+                            </Badge>
                           </div>
                         </div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">{u.note}</div>
+                        {!draggableItem && (
+                          <div className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                            좌표가 없어 회전에 끌어다 놓을 수 없습니다
+                          </div>
+                        )}
                       </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-sm tabular-nums">{n(u.boxes)}</div>
-                        <Badge variant="outline" className="text-[10px]">
-                          {u.reason}
-                        </Badge>
-                      </div>
-                    </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">{u.note}</div>
-                    {!draggableItem && (
-                      <div className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
-                        좌표가 없어 회전에 끌어다 놓을 수 없습니다
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </CardContent>
     </Card>
   );

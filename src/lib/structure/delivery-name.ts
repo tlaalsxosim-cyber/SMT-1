@@ -71,7 +71,7 @@ export function extractTags(...sources: (string | null | undefined)[]): Delivery
   return [...found];
 }
 
-/** 차량 톤수 제한 추출 (R-10) — `13시전(3.5톤이하)` → 3.5 */
+/** 차량 톤수 제한 추출 (R-10) — `13시전(3.5톤이하)` / `1톤배차` / `2.5톤` 전부 → 그 숫자가 상한 */
 export function extractTonnageLimit(...sources: (string | null | undefined)[]): number | null {
   const haystack = sources.filter(Boolean).join(" ").normalize("NFC");
   const m = TONNAGE_LIMIT_RE.exec(haystack);
