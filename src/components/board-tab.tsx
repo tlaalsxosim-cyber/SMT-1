@@ -11,10 +11,15 @@ import type { DragEvent } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
   Clock,
   Download,
   GripVertical,
   Home,
+  Map as MapIcon,
   MapPin,
   Package,
   Sparkles,
@@ -60,6 +65,7 @@ function readDragPayload(e: DragEvent): DragPayload | null {
 export function BoardTab() {
   const { result, downloadResult, downloaded, moveToTrip, moveToUnassigned } = useApp();
   const [focusTripId, setFocusTripId] = useState<string | null>(null);
+  const [mapOpen, setMapOpen] = useState(true);
 
   if (!result) {
     return (
@@ -97,7 +103,45 @@ export function BoardTab() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="space-y-4">
-          <MapView result={result} focusTripId={focusTripId} onFocusTrip={setFocusTripId} />
+          <Card>
+            <CardHeader
+              className="flex flex-row items-center justify-between gap-2 cursor-pointer pb-3"
+              onClick={() => setMapOpen((v) => !v)}
+            >
+              <CardTitle className="flex items-center gap-2 text-base">
+                <MapIcon className="size-4" /> 배차 지도
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMapOpen((v) => !v);
+                }}
+              >
+                {mapOpen ? (
+                  <>
+                    <ChevronUp /> 접기
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown /> 펼치기
+                  </>
+                )}
+              </Button>
+            </CardHeader>
+            {/* 접었을 때도 지도(특히 TMAP jsv2)는 마운트 상태를 유지한다 — CSS로만 숨겨야
+                펼칠 때마다 지도를 다시 만들며 타일을 재호출하지 않는다 */}
+            <CardContent className={cn(!mapOpen && "hidden")}>
+              <MapView result={result} focusTripId={focusTripId} onFocusTrip={setFocusTripId} />
+              <MapLegend
+                trips={result.trips}
+                vehicleIds={result.vehicles.map((v) => v.id)}
+                focusTripId={focusTripId}
+                onFocusTrip={setFocusTripId}
+              />
+            </CardContent>
+          </Card>
 
           {result.briefing && (
             <Card>
@@ -353,6 +397,91 @@ function Stat({
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={cn("text-lg font-semibold tabular-nums", tone)}>{value}</div>
       {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 지도 색상 범례 — 어느 선이 어느 기사인지 색만으로는 구분이 안 된다는 피드백(2026-09-21)에
+ * 대응한다. 칩을 클릭하면 지도의 focusTripId와 똑같이 그 회전만 강조하고 나머지는 흐려지며,
+ * ‹ › 로 한 회전씩 순서대로 넘겨 볼 수 있다.
+ */
+function MapLegend({
+  trips,
+  vehicleIds,
+  focusTripId,
+  onFocusTrip,
+}: {
+  trips: Trip[];
+  vehicleIds: string[];
+  focusTripId: string | null;
+  onFocusTrip: (id: string | null) => void;
+}) {
+  const ordered = useMemo(
+    () => [...trips].sort((a, b) => a.기사명.localeCompare(b.기사명, "ko") || a.tripNo - b.tripNo),
+    [trips]
+  );
+
+  if (ordered.length === 0) return null;
+
+  const step = (dir: 1 | -1) => {
+    const idx = ordered.findIndex((t) => t.id === focusTripId);
+    const next =
+      idx === -1 ? (dir === 1 ? 0 : ordered.length - 1) : (idx + dir + ordered.length) % ordered.length;
+    onFocusTrip(ordered[next].id);
+  };
+
+  return (
+    <div className="mt-3 space-y-2 border-t pt-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">
+          선 색 = 기사 — 클릭하거나 ‹ › 로 하나씩 확인하십시오
+        </span>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" className="size-6" onClick={() => step(-1)}>
+            <ChevronLeft className="size-3.5" />
+          </Button>
+          <Button variant="outline" size="icon" className="size-6" onClick={() => step(1)}>
+            <ChevronRight className="size-3.5" />
+          </Button>
+          {focusTripId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => onFocusTrip(null)}
+            >
+              전체 보기
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {ordered.map((t) => {
+          const color = driverColor(vehicleIds, t.vehicleId);
+          const active = focusTripId === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => onFocusTrip(active ? null : t.id)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] transition-colors",
+                active ? "border-transparent" : "hover:bg-accent"
+              )}
+              style={active ? { background: color, color: "white" } : undefined}
+            >
+              <span
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ background: active ? "white" : color }}
+              />
+              {t.기사명} · {t.tripNo}회전
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
