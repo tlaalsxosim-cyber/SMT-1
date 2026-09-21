@@ -6,7 +6,7 @@
  * 지도 · 기사별 배차 티켓 · 기타(미배차) 권역별 패널 · 주소 확인 필요 · AI 브리핑.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DragEvent } from "react";
 import {
   AlertTriangle,
@@ -36,6 +36,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DispatchResponse } from "@/lib/api/contracts";
 import type { Trip, UnassignedItem } from "@/lib/domain/types";
+import { installDragAutoScroll } from "@/lib/drag-autoscroll";
 import { driverColor, formatDate, hhmm, km, loadRateTone, n, pct } from "@/lib/format";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -66,6 +67,10 @@ export function BoardTab() {
   const { result, downloadResult, downloaded, moveToTrip, moveToUnassigned } = useApp();
   const [focusTripId, setFocusTripId] = useState<string | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
+
+  // 기타(미배차)와 기사 티켓이 화면에 동시에 안 보일 만큼 목록이 길 때, 드래그 중
+  // 가장자리에서 자동 스크롤되게 한다 (2026-09-21 피드백)
+  useEffect(() => installDragAutoScroll(), []);
 
   if (!result) {
     return (
