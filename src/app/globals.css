@@ -55,15 +55,18 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  /* SASE Red — 브랜드 CI 색상 (Pantone 199C / #E31F26) */
+  --primary: oklch(0.586 0.225 26.679);
+  --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  /* 브랜드 레드보다 어둡게 잡아 "배차 실행" 등 주 액션 버튼과 제약 위반/오류
+     배지가 같은 빨강으로 뭉개지지 않게 한다 (2026-09-22 피드백) */
+  --destructive: oklch(0.422 0.184 26.679);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -90,15 +93,17 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  /* SASE Red — 어두운 배경에서도 채도를 유지하도록 살짝 밝게 조정 */
+  --primary: oklch(0.646 0.225 26.679);
+  --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+  /* 주 액션(primary)보다 밝혀서 어두운 배경에서도 오류/위반 배지가 더 도드라지게 한다 */
+  --destructive: oklch(0.720 0.225 26.679);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
