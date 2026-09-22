@@ -651,6 +651,7 @@ export function assignDispatch(
       hasExplicitStart: p.time.hasExplicitStart,
       contact: p.contact,
       출고장소코드: p.출고장소코드,
+      출고장소: p.출고장소,
       siteGroup: autoSiteGroup(p.출고장소코드),
     });
   }
@@ -671,6 +672,7 @@ export function assignDispatch(
       hasExplicitStart: p.time.hasExplicitStart,
       contact: p.contact,
       출고장소코드: p.출고장소코드,
+      출고장소: p.출고장소,
       siteGroup: autoSiteGroup(p.출고장소코드),
     });
   }
@@ -709,6 +711,7 @@ function diagnose(
     hasExplicitStart: p.time.hasExplicitStart,
     contact: p.contact,
     출고장소코드: p.출고장소코드,
+    출고장소: p.출고장소,
     siteGroup: autoSiteGroup(p.출고장소코드),
   };
 

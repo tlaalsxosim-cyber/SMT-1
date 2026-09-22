@@ -574,6 +574,8 @@ async function optimizeTrips(
               timeRaw: src.time.columnRaw ?? src.parsedName.conditionText,
               reason: "시간창불가",
               note: `TMAP 도착예정 ${minutesToHHMM(v.arriveAt!)}이 시간창을 벗어나 제외했습니다`,
+              출고장소코드: src.출고장소코드,
+              출고장소: src.출고장소,
               siteGroup: autoSiteGroup(src.출고장소코드),
             });
             tripIssues.push({
@@ -607,6 +609,8 @@ async function optimizeTrips(
                   keptBoxes,
                   kept.length
                 ),
+                출고장소코드: p.출고장소코드,
+                출고장소: p.출고장소,
                 siteGroup: autoSiteGroup(p.출고장소코드),
               });
             }
@@ -658,6 +662,8 @@ async function optimizeTrips(
           timeRaw: src.time.columnRaw ?? src.parsedName.conditionText,
           reason: "시간창불가",
           note: `TMAP 도착예정 ${minutesToHHMM(v.arriveAt!)}이 시간창을 벗어나 제외했습니다`,
+          출고장소코드: src.출고장소코드,
+          출고장소: src.출고장소,
           siteGroup: autoSiteGroup(src.출고장소코드),
         });
       }
@@ -678,6 +684,8 @@ async function optimizeTrips(
               keptBoxes,
               kept.length
             ),
+            출고장소코드: p.출고장소코드,
+            출고장소: p.출고장소,
             siteGroup: autoSiteGroup(p.출고장소코드),
           });
         }
@@ -786,6 +794,7 @@ function buildTrip(
       contact: p.contact,
       geo: p.geo,
       출고장소코드: p.출고장소코드,
+      출고장소: p.출고장소,
     };
   });
 

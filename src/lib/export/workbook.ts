@@ -105,6 +105,7 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
     { header: "업체명", key: "company", width: 26 },
     { header: "권역", key: "region", width: 16 },
     { header: "주소", key: "address", width: 46 },
+    { header: "출고창고", key: "warehouse", width: 18 },
     { header: "박스\n수량", key: "boxes", width: 8 },
     { header: "납품시간\n(원문)", key: "timeRaw", width: 22 },
     { header: "납품시간\n(해석)", key: "windows", width: 26 },
@@ -130,6 +131,7 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
         company: stop.company,
         region: stop.region,
         address: stop.address,
+        warehouse: stop.출고장소 || "-",
         boxes: stop.boxes,
         timeRaw: stop.timeRaw || "-",
         windows: formatWindows(stop.windows),
@@ -155,6 +157,7 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
       address: `출발 ${hhmm(trip.departAt)} · 귀가 도착 ${hhmm(trip.homeAt)} · 거리 근거 ${
         trip.distanceSource === "tmap" ? "TMAP 실도로" : "직선거리 근사"
       }`,
+      warehouse: "",
       boxes: trip.boxes,
       timeRaw: v ? `적재범위 ${v.최소수량}~${v.최대수량}` : "",
       windows: `적재율 ${(trip.loadRate * 100).toFixed(0)}%`,
@@ -172,7 +175,7 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
   }
 
   if (byDriver.length === 0) ws.addRow({ driver: "배차된 회전이 없습니다" });
-  ws.autoFilter = { from: "A1", to: "N1" };
+  ws.autoFilter = { from: "A1", to: "O1" };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -182,13 +185,14 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
 function buildUnassignedSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
   const ws = wb.addWorksheet("기타_미배차");
 
-  // 담당자 요청(2026-09-22)으로 업체명·수량·권역·운송업체(일성/대성)만 남긴다.
+  // 담당자 요청(2026-09-22)으로 업체명·수량·권역·운송업체(일성/대성)·출고창고만 남긴다.
   // 주소·납품시간·사유코드·비고는 화면(배차 보드)과 "주소확인필요" 시트에서 확인한다.
   setColumns(ws, [
     { header: "업체명", key: "company", width: 28 },
     { header: "수량", key: "boxes", width: 10 },
     { header: "권역", key: "region", width: 18 },
     { header: "운송업체", key: "siteGroup", width: 12 },
+    { header: "출고창고", key: "warehouse", width: 18 },
   ]);
 
   // 권역별로 묶어 용차 1대로 담을 수 있는지 보이게 한다 (R-12 / G4)
@@ -210,6 +214,7 @@ function buildUnassignedSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
         boxes: u.boxes,
         region,
         siteGroup: u.siteGroup,
+        warehouse: u.출고장소 || "-",
       });
     }
     const sub = ws.addRow({
@@ -217,6 +222,7 @@ function buildUnassignedSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
       boxes: items.reduce((s, x) => s + x.boxes, 0),
       region: `${region} 소계`,
       siteGroup: "",
+      warehouse: "",
     });
     sub.font = { bold: true };
     sub.eachCell((c) => (c.fill = WARN_FILL));
@@ -227,6 +233,7 @@ function buildUnassignedSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
     boxes: input.unassignedBoxes,
     region: "합계",
     siteGroup: "",
+    warehouse: "",
   });
   total.font = { bold: true, size: 11 };
 

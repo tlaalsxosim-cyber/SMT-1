@@ -108,6 +108,7 @@ export function unassignedToStop(u: UnassignedItem): Stop {
     geo: u.geo,
     manual: true,
     출고장소코드: u.출고장소코드,
+    출고장소: u.출고장소,
     siteGroup: u.siteGroup,
   };
 }
@@ -130,6 +131,7 @@ export function stopToUnassigned(s: Stop): UnassignedItem {
     hasExplicitStart: s.hasExplicitStart,
     contact: s.contact,
     출고장소코드: s.출고장소코드,
+    출고장소: s.출고장소,
     siteGroup: s.siteGroup ?? autoSiteGroup(s.출고장소코드),
   };
 }

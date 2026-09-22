@@ -77,14 +77,14 @@ describe("AC-15 결과 엑셀", () => {
   it("배차표에 방문순서·도착예정·귀가거리 컬럼이 있다 (§10 시트1)", () => {
     const header = wb.getWorksheet("배차표")!.getRow(1).values as unknown[];
     const text = header.join("|");
-    for (const col of ["기사명", "톤수", "회전", "방문", "업체명", "권역", "주소", "박스", "TMAP", "특이사항"]) {
+    for (const col of ["기사명", "톤수", "회전", "방문", "업체명", "권역", "주소", "출고창고", "박스", "TMAP", "특이사항"]) {
       expect(text).toContain(col);
     }
   });
 
-  it("기타_미배차는 업체명·수량·권역·운송업체 4열뿐이다 (2026-09-22 담당자 요청)", () => {
+  it("기타_미배차는 업체명·수량·권역·운송업체·출고창고 5열뿐이다 (2026-09-22 담당자 요청)", () => {
     const header = wb.getWorksheet("기타_미배차")!.getRow(1).values as unknown[];
-    expect(header.filter(Boolean)).toEqual(["업체명", "수량", "권역", "운송업체"]);
+    expect(header.filter(Boolean)).toEqual(["업체명", "수량", "권역", "운송업체", "출고창고"]);
   });
 
   it("기타_미배차 합계가 파이프라인 결과와 일치한다", () => {
