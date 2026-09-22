@@ -184,7 +184,12 @@ function jitter(seed: string, salt: string): number {
 
 /**
  * Demo Mode 지오코딩 — 실제 API를 부르지 않는다.
- * 시·군 중심에서 약 ±0.06도(≈ 5~7km) 범위로 흩는다.
+ * 시·군 중심에서 약 ±0.02도(≈ 2km) 범위로 흩는다.
+ *
+ * 원래 ±0.06도(≈ 5~7km)였는데, 전국 시·군으로 목록을 넓히면서(2026-09-22)
+ * 목포·여수·통영·거제·속초처럼 시가지가 좁은 반도·해안 도시에서 그 폭이
+ * 바다나 시 경계 밖으로 튀어나가 지도에 엉뚱한 위치로 찍히는 사례가 나왔다.
+ * 2km면 읍·면 중심가 정도 폭이라 대부분 도심 안에 머문다.
  */
 export function demoGeocode(address: string, regionHint?: string): GeoResult | null {
   const region =
@@ -194,8 +199,8 @@ export function demoGeocode(address: string, regionHint?: string): GeoResult | n
 
   const [lat, lon] = centroid;
   return {
-    lat: Number((lat + jitter(address, "lat") * 0.06).toFixed(6)),
-    lon: Number((lon + jitter(address, "lon") * 0.06).toFixed(6)),
+    lat: Number((lat + jitter(address, "lat") * 0.02).toFixed(6)),
+    lon: Number((lon + jitter(address, "lon") * 0.02).toFixed(6)),
     source: "demo",
     queriedAddress: address,
     matchedRoadName: region ?? undefined,
