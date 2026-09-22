@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { Database, Download, LayoutDashboard, Settings2, Upload } from "lucide-react";
+import Image from "next/image";
+import { Download, LayoutDashboard, Settings2, Upload } from "lucide-react";
 
 import { BoardTab } from "@/components/board-tab";
 import { DownloadTab } from "@/components/download-tab";
@@ -42,9 +43,14 @@ export function AppShell() {
       <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Database className="size-5" />
-            </div>
+            <Image
+              src="/sase-logo.png"
+              alt="SASE"
+              width={575}
+              height={237}
+              priority
+              className="h-9 w-auto shrink-0"
+            />
             <div>
               <h1 className="text-base font-semibold leading-tight">
                 AI 기반 일일 배송 최적화 시스템
