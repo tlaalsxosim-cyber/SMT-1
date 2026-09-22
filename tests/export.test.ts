@@ -82,27 +82,31 @@ describe("AC-15 결과 엑셀", () => {
     }
   });
 
+  it("기타_미배차는 업체명·수량·권역·운송업체 4열뿐이다 (2026-09-22 담당자 요청)", () => {
+    const header = wb.getWorksheet("기타_미배차")!.getRow(1).values as unknown[];
+    expect(header.filter(Boolean)).toEqual(["업체명", "수량", "권역", "운송업체"]);
+  });
+
   it("기타_미배차 합계가 파이프라인 결과와 일치한다", () => {
     const ws = wb.getWorksheet("기타_미배차")!;
     let totalRow: ExcelJS.Row | null = null;
     ws.eachRow((row) => {
-      if (String(row.getCell(1).value) === "합계") totalRow = row;
+      if (String(row.getCell(3).value) === "합계") totalRow = row;
     });
     expect(totalRow).not.toBeNull();
-    expect(totalRow!.getCell(4).value).toBe(out.unassignedBoxes);
+    expect(totalRow!.getCell(2).value).toBe(out.unassignedBoxes);
   });
 
-  it("미배차 전 건에 사유 코드가 채워져 있다 (FR-43)", () => {
+  it("미배차 전 건에 운송업체(일성/대성) 구분이 채워져 있다", () => {
     const ws = wb.getWorksheet("기타_미배차")!;
     let rows = 0;
     ws.eachRow((row, i) => {
       if (i === 1) return;
-      const reason = row.getCell(6).value;
-      const region = String(row.getCell(1).value ?? "");
+      const region = String(row.getCell(3).value ?? "");
       if (region.endsWith("소계") || region === "합계") return;
-      if (row.getCell(4).value === null) return;
+      if (row.getCell(2).value === null) return;
       rows += 1;
-      expect(String(reason ?? "")).not.toBe("");
+      expect(["일성", "대성"]).toContain(String(row.getCell(4).value ?? ""));
     });
     expect(rows).toBe(out.unassigned.length);
   });

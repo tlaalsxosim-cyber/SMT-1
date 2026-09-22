@@ -46,7 +46,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DispatchResponse } from "@/lib/api/contracts";
-import type { Trip, UnassignedItem } from "@/lib/domain/types";
+import type { SiteGroup, Trip, UnassignedItem } from "@/lib/domain/types";
 import { installDragAutoScroll } from "@/lib/drag-autoscroll";
 import { driverColor, formatDate, hhmm, km, loadRateTone, n, pct } from "@/lib/format";
 import { useApp } from "@/lib/store";
@@ -65,14 +65,6 @@ function setDragPayload(e: DragEvent, payload: DragPayload) {
   e.dataTransfer.effectAllowed = "move";
 }
 
-/** 미배차 물류사 구분 — 담당자가 "+"에서 수동으로 덮어쓸 수 있다 */
-type SiteGroup = "일성" | "대성";
-
-/** 출고장소코드 2800(평택센터)이면 대성, 그 외(컬럼이 없는 파일 포함)는 일성 */
-function autoSiteGroup(code: string | null | undefined): SiteGroup {
-  return code === "2800" ? "대성" : "일성";
-}
-
 function readDragPayload(e: DragEvent): DragPayload | null {
   try {
     const raw = e.dataTransfer.getData(DRAG_MIME);
@@ -83,7 +75,7 @@ function readDragPayload(e: DragEvent): DragPayload | null {
 }
 
 export function BoardTab() {
-  const { result, downloadResult, downloaded, moveToTrip, moveToUnassigned } = useApp();
+  const { result, downloadResult, downloaded, moveToTrip, moveToUnassigned, setSiteGroup } = useApp();
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
   const [boardTab, setBoardTab] = useState<"unassigned" | "address" | "log">("unassigned");
@@ -220,6 +212,7 @@ export function BoardTab() {
                   if (payload.from !== "unassigned") moveToUnassigned(payload.pointId, payload.from);
                 }}
                 onAssign={(pointId, toTripId) => moveToTrip(pointId, null, toTripId)}
+                onSetSiteGroup={setSiteGroup}
               />
             </TabsContent>
 
@@ -744,6 +737,7 @@ function UnassignedPanel({
   onFocus,
   onDropUnassigned,
   onAssign,
+  onSetSiteGroup,
 }: {
   items: UnassignedItem[];
   totalBoxes: number;
@@ -753,6 +747,8 @@ function UnassignedPanel({
   onDropUnassigned: (payload: DragPayload) => void;
   /** "+" 메뉴에서 기사 이름을 선택했을 때 — (pointId, 배정할 회전 id) */
   onAssign: (pointId: string, toTripId: string) => void;
+  /** "+" 메뉴에서 일성/대성을 선택했을 때 */
+  onSetSiteGroup: (pointId: string, siteGroup: SiteGroup) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [collapsedRegions, setCollapsedRegions] = useState<Set<string>>(new Set());
@@ -761,24 +757,18 @@ function UnassignedPanel({
     [trips]
   );
 
-  // 일성/대성 구분 — 기본은 출고장소코드로 자동 판정하고, "+" 메뉴에서 개별로 덮어쓸 수 있다
-  const [siteOverrides, setSiteOverrides] = useState<Record<string, SiteGroup>>({});
+  // 일성/대성 구분은 서버가 출고장소코드로 자동 산정해 result.unassigned[].siteGroup에
+  // 채워 보낸다. "+" 메뉴로 덮어쓰면 store의 setSiteGroup이 그 필드를 바로 갱신하므로
+  // 여기서는 items를 그대로 읽기만 하면 된다(로컬 상태 불필요 — 다운로드에도 그대로 반영됨).
   const [siteFilter, setSiteFilter] = useState<"all" | SiteGroup>("all");
-  const siteGroupOf = (u: UnassignedItem): SiteGroup =>
-    siteOverrides[u.pointId] ?? autoSiteGroup(u.출고장소코드);
   const siteCounts = useMemo(() => {
     const counts: Record<SiteGroup, number> = { 일성: 0, 대성: 0 };
-    for (const u of items) counts[siteOverrides[u.pointId] ?? autoSiteGroup(u.출고장소코드)]++;
+    for (const u of items) counts[u.siteGroup]++;
     return counts;
-  }, [items, siteOverrides]);
+  }, [items]);
   const filteredItems = useMemo(
-    () =>
-      siteFilter === "all"
-        ? items
-        : items.filter(
-            (u) => (siteOverrides[u.pointId] ?? autoSiteGroup(u.출고장소코드)) === siteFilter
-          ),
-    [items, siteFilter, siteOverrides]
+    () => (siteFilter === "all" ? items : items.filter((u) => u.siteGroup === siteFilter)),
+    [items, siteFilter]
   );
 
   const byRegion = useMemo(() => {
@@ -959,7 +949,7 @@ function UnassignedPanel({
                               <div className="text-sm tabular-nums">{n(u.boxes)}</div>
                               <div className="flex items-center justify-end gap-1">
                                 <Badge variant="outline" className="text-[10px]">
-                                  {siteGroupOf(u)}
+                                  {u.siteGroup}
                                 </Badge>
                                 <Badge variant="outline" className="text-[10px]">
                                   {u.reason}
@@ -1009,12 +999,10 @@ function UnassignedPanel({
                                 {(["일성", "대성"] as const).map((g) => (
                                   <DropdownMenuItem
                                     key={g}
-                                    onClick={() =>
-                                      setSiteOverrides((prev) => ({ ...prev, [u.pointId]: g }))
-                                    }
+                                    onClick={() => onSetSiteGroup(u.pointId, g)}
                                   >
                                     {g}
-                                    {siteGroupOf(u) === g && (
+                                    {u.siteGroup === g && (
                                       <Check className="ml-auto size-3.5 text-primary" />
                                     )}
                                   </DropdownMenuItem>

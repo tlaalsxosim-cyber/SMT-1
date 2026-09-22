@@ -270,6 +270,9 @@ export type UnassignedReason =
   | "적재하한미달"
   | "수동조정";
 
+/** 미배차 물류사 구분 — 평택센터(출고장소코드 2800) 출고면 대성, 그 외는 일성 */
+export type SiteGroup = "일성" | "대성";
+
 export interface Stop {
   seq: number;
   pointId: string;
@@ -294,6 +297,8 @@ export interface Stop {
   manual?: boolean;
   /** 출고장소코드 (BA열) — 일성/대성 구분에 쓴다. 컬럼이 없는 파일이면 null */
   출고장소코드?: string | null;
+  /** 미배차였을 때의 일성/대성 구분 — 담당자가 "+"에서 덮어썼으면 그 값을 회전에 배정된 뒤에도 들고 있는다 */
+  siteGroup?: SiteGroup;
 }
 
 export interface Trip {
@@ -338,6 +343,8 @@ export interface UnassignedItem {
   contact?: string | null;
   /** 출고장소코드 (BA열) — 2800(평택센터)이면 대성, 그 외(컬럼 없음 포함)는 일성 */
   출고장소코드?: string | null;
+  /** 일성/대성 구분 — 서버가 출고장소코드로 자동 산정하고, 담당자가 보드에서 덮어쓸 수 있다 */
+  siteGroup: SiteGroup;
 }
 
 export interface ApiUsage {

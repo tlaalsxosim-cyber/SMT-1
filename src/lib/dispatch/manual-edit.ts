@@ -12,6 +12,7 @@
  * 허용한다.
  */
 
+import { autoSiteGroup } from "@/lib/domain/constants";
 import type { GeoResult, Minutes, Stop, UnassignedItem, Vehicle } from "@/lib/domain/types";
 import { isWithin } from "@/lib/structure/time-window";
 import { simulateTrip, type SimStop } from "./feasibility";
@@ -107,6 +108,7 @@ export function unassignedToStop(u: UnassignedItem): Stop {
     geo: u.geo,
     manual: true,
     출고장소코드: u.출고장소코드,
+    siteGroup: u.siteGroup,
   };
 }
 
@@ -128,5 +130,6 @@ export function stopToUnassigned(s: Stop): UnassignedItem {
     hasExplicitStart: s.hasExplicitStart,
     contact: s.contact,
     출고장소코드: s.출고장소코드,
+    siteGroup: s.siteGroup ?? autoSiteGroup(s.출고장소코드),
   };
 }

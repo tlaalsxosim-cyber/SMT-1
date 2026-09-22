@@ -22,6 +22,7 @@
  */
 
 import {
+  autoSiteGroup,
   DEFAULT_DEPART_MINUTES,
   EARLY_DELIVERY_RULES,
   LARGE_VEHICLE_TONNAGE,
@@ -650,6 +651,7 @@ export function assignDispatch(
       hasExplicitStart: p.time.hasExplicitStart,
       contact: p.contact,
       출고장소코드: p.출고장소코드,
+      siteGroup: autoSiteGroup(p.출고장소코드),
     });
   }
 
@@ -669,6 +671,7 @@ export function assignDispatch(
       hasExplicitStart: p.time.hasExplicitStart,
       contact: p.contact,
       출고장소코드: p.출고장소코드,
+      siteGroup: autoSiteGroup(p.출고장소코드),
     });
   }
 
@@ -706,6 +709,7 @@ function diagnose(
     hasExplicitStart: p.time.hasExplicitStart,
     contact: p.contact,
     출고장소코드: p.출고장소코드,
+    siteGroup: autoSiteGroup(p.출고장소코드),
   };
 
   const centerKm = p.geo ? distKm(ctx.centerGeo, p.geo) : 0;

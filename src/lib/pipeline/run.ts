@@ -16,6 +16,7 @@
 import "server-only";
 
 import {
+  autoSiteGroup,
   CENTER,
   DEFAULT_DEPART_MINUTES,
   RETRY_LIMIT,
@@ -573,6 +574,7 @@ async function optimizeTrips(
               timeRaw: src.time.columnRaw ?? src.parsedName.conditionText,
               reason: "시간창불가",
               note: `TMAP 도착예정 ${minutesToHHMM(v.arriveAt!)}이 시간창을 벗어나 제외했습니다`,
+              siteGroup: autoSiteGroup(src.출고장소코드),
             });
             tripIssues.push({
               level: "warning",
@@ -605,6 +607,7 @@ async function optimizeTrips(
                   keptBoxes,
                   kept.length
                 ),
+                siteGroup: autoSiteGroup(p.출고장소코드),
               });
             }
             tripIssues.push({
@@ -655,6 +658,7 @@ async function optimizeTrips(
           timeRaw: src.time.columnRaw ?? src.parsedName.conditionText,
           reason: "시간창불가",
           note: `TMAP 도착예정 ${minutesToHHMM(v.arriveAt!)}이 시간창을 벗어나 제외했습니다`,
+          siteGroup: autoSiteGroup(src.출고장소코드),
         });
       }
 
@@ -674,6 +678,7 @@ async function optimizeTrips(
               keptBoxes,
               kept.length
             ),
+            siteGroup: autoSiteGroup(p.출고장소코드),
           });
         }
         tripIssues.push({
@@ -780,6 +785,7 @@ function buildTrip(
       timeOk: arriveAt === null ? null : isWithin(p.time.windows, arriveAt),
       contact: p.contact,
       geo: p.geo,
+      출고장소코드: p.출고장소코드,
     };
   });
 

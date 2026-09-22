@@ -3,7 +3,7 @@
  * 설정 탭에서 세션 한정으로만 변경되며 저장하지 않는다 (§11 ④)
  */
 
-import type { DeliveryTag, GeoPoint, Minutes } from "./types";
+import type { DeliveryTag, GeoPoint, Minutes, SiteGroup } from "./types";
 
 /** 출발지 — 평택센터 단일 출발 (§1.2) */
 export const CENTER = {
@@ -61,6 +61,17 @@ export const LARGE_VEHICLE_TONNAGE = 5;
  * 제외된 물량은 버려지지 않는다 — 사유 「수도권외」로 기타에 남아 용차 판단으로 넘어간다(R-12).
  */
 export const METRO_SOUTH_LIMIT_LAT = 36.9;
+
+/**
+ * 미배차 물류사 구분 (일성/대성) — 출고장소코드가 이 값(평택센터)이면 대성,
+ * 그 외(컬럼이 없는 구 양식 파일 포함)는 일성으로 본다. 기본값이며,
+ * 배차 보드 "+"에서 담당자가 건별로 덮어쓸 수 있다.
+ */
+export const DAESUNG_SITE_CODE = "2800";
+
+export function autoSiteGroup(출고장소코드: string | null | undefined): SiteGroup {
+  return 출고장소코드 === DAESUNG_SITE_CODE ? "대성" : "일성";
+}
 
 /**
  * 같은 회전에 묶을 때 허용하는 최대 인접 거리 (R-07 강화) — km

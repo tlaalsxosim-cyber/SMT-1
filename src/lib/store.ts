@@ -17,6 +17,7 @@ import type {
   ServerStatus,
 } from "@/lib/api/contracts";
 import { DEFAULT_DEPART_MINUTES } from "@/lib/domain/constants";
+import type { SiteGroup } from "@/lib/domain/types";
 import { recomputeTrip, stopToUnassigned, unassignedToStop } from "@/lib/dispatch/manual-edit";
 
 export type TabKey = "board" | "upload" | "download" | "settings";
@@ -67,6 +68,9 @@ interface AppState {
    */
   moveToTrip: (pointId: string, fromTripId: string | null, toTripId: string) => void;
   moveToUnassigned: (pointId: string, fromTripId: string) => void;
+
+  /** 기타(미배차) 업체의 일성/대성 구분을 "+" 메뉴에서 수동으로 덮어쓴다 */
+  setSiteGroup: (pointId: string, siteGroup: SiteGroup) => void;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -318,6 +322,16 @@ export const useApp = create<AppState>((set, get) => ({
     const unassigned = [...result.unassigned, stopToUnassigned(stop)];
 
     set({ result: { ...result, ...summarize(trips, unassigned) } });
+  },
+
+  setSiteGroup(pointId, siteGroup) {
+    const { result } = get();
+    if (!result) return;
+
+    const unassigned = result.unassigned.map((u) =>
+      u.pointId === pointId ? { ...u, siteGroup } : u
+    );
+    set({ result: { ...result, unassigned } });
   },
 }));
 

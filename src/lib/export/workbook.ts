@@ -182,14 +182,13 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
 function buildUnassignedSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
   const ws = wb.addWorksheet("기타_미배차");
 
+  // 담당자 요청(2026-09-22)으로 업체명·수량·권역·운송업체(일성/대성)만 남긴다.
+  // 주소·납품시간·사유코드·비고는 화면(배차 보드)과 "주소확인필요" 시트에서 확인한다.
   setColumns(ws, [
-    { header: "권역", key: "region", width: 18 },
     { header: "업체명", key: "company", width: 28 },
-    { header: "주소", key: "address", width: 48 },
-    { header: "박스수량", key: "boxes", width: 10 },
-    { header: "납품시간", key: "time", width: 24 },
-    { header: "사유코드", key: "reason", width: 14 },
-    { header: "비고", key: "note", width: 60 },
+    { header: "수량", key: "boxes", width: 10 },
+    { header: "권역", key: "region", width: 18 },
+    { header: "운송업체", key: "siteGroup", width: 12 },
   ]);
 
   // 권역별로 묶어 용차 1대로 담을 수 있는지 보이게 한다 (R-12 / G4)
@@ -207,42 +206,31 @@ function buildUnassignedSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
   for (const [region, items] of regions) {
     for (const u of items.sort((a, b) => b.boxes - a.boxes)) {
       ws.addRow({
-        region,
         company: u.company,
-        address: u.address,
         boxes: u.boxes,
-        time: u.timeRaw || "-",
-        reason: u.reason,
-        note: u.note,
+        region,
+        siteGroup: u.siteGroup,
       });
     }
     const sub = ws.addRow({
-      region: `${region} 소계`,
       company: `${items.length}개사`,
-      address: "",
       boxes: items.reduce((s, x) => s + x.boxes, 0),
-      time: "",
-      reason: "",
-      note: "용차 1대로 묶을 수 있는지 검토",
+      region: `${region} 소계`,
+      siteGroup: "",
     });
     sub.font = { bold: true };
     sub.eachCell((c) => (c.fill = WARN_FILL));
   }
 
   const total = ws.addRow({
-    region: "합계",
     company: `${input.unassigned.length}건`,
-    address: "",
     boxes: input.unassignedBoxes,
-    time: "",
-    reason: "",
-    note: `총 물량 ${input.totalBoxes.toLocaleString()}박스 중 ${(
-      (input.unassignedBoxes / Math.max(1, input.totalBoxes)) * 100
-    ).toFixed(1)}%`,
+    region: "합계",
+    siteGroup: "",
   });
   total.font = { bold: true, size: 11 };
 
-  if (input.unassigned.length === 0) ws.addRow({ region: "미배차 물량이 없습니다" });
+  if (input.unassigned.length === 0) ws.addRow({ company: "미배차 물량이 없습니다" });
 }
 
 // ─────────────────────────────────────────────────────────────
