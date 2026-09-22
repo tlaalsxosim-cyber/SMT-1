@@ -649,6 +649,7 @@ export function assignDispatch(
       maxTonnage: p.maxTonnage,
       hasExplicitStart: p.time.hasExplicitStart,
       contact: p.contact,
+      출고장소코드: p.출고장소코드,
     });
   }
 
@@ -667,6 +668,7 @@ export function assignDispatch(
       maxTonnage: p.maxTonnage,
       hasExplicitStart: p.time.hasExplicitStart,
       contact: p.contact,
+      출고장소코드: p.출고장소코드,
     });
   }
 
@@ -703,6 +705,7 @@ function diagnose(
     maxTonnage: p.maxTonnage,
     hasExplicitStart: p.time.hasExplicitStart,
     contact: p.contact,
+    출고장소코드: p.출고장소코드,
   };
 
   const centerKm = p.geo ? distKm(ctx.centerGeo, p.geo) : 0;

@@ -292,6 +292,8 @@ export interface Stop {
   geo?: GeoResult;
   /** 담당자가 드래그로 이 회전에 수동 배정했는지 — 시간·거리는 근사 재계산값 */
   manual?: boolean;
+  /** 출고장소코드 (BA열) — 일성/대성 구분에 쓴다. 컬럼이 없는 파일이면 null */
+  출고장소코드?: string | null;
 }
 
 export interface Trip {
@@ -334,6 +336,8 @@ export interface UnassignedItem {
   maxTonnage?: number | null;
   hasExplicitStart?: boolean;
   contact?: string | null;
+  /** 출고장소코드 (BA열) — 2800(평택센터)이면 대성, 그 외(컬럼 없음 포함)는 일성 */
+  출고장소코드?: string | null;
 }
 
 export interface ApiUsage {

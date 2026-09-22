@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { DragEvent } from "react";
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -38,6 +39,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
@@ -61,6 +63,14 @@ const DRAG_MIME = "application/json";
 function setDragPayload(e: DragEvent, payload: DragPayload) {
   e.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
   e.dataTransfer.effectAllowed = "move";
+}
+
+/** 미배차 물류사 구분 — 담당자가 "+"에서 수동으로 덮어쓸 수 있다 */
+type SiteGroup = "일성" | "대성";
+
+/** 출고장소코드 2800(평택센터)이면 대성, 그 외(컬럼이 없는 파일 포함)는 일성 */
+function autoSiteGroup(code: string | null | undefined): SiteGroup {
+  return code === "2800" ? "대성" : "일성";
 }
 
 function readDragPayload(e: DragEvent): DragPayload | null {
@@ -750,9 +760,30 @@ function UnassignedPanel({
     () => [...trips].sort((a, b) => a.기사명.localeCompare(b.기사명, "ko") || a.tripNo - b.tripNo),
     [trips]
   );
+
+  // 일성/대성 구분 — 기본은 출고장소코드로 자동 판정하고, "+" 메뉴에서 개별로 덮어쓸 수 있다
+  const [siteOverrides, setSiteOverrides] = useState<Record<string, SiteGroup>>({});
+  const [siteFilter, setSiteFilter] = useState<"all" | SiteGroup>("all");
+  const siteGroupOf = (u: UnassignedItem): SiteGroup =>
+    siteOverrides[u.pointId] ?? autoSiteGroup(u.출고장소코드);
+  const siteCounts = useMemo(() => {
+    const counts: Record<SiteGroup, number> = { 일성: 0, 대성: 0 };
+    for (const u of items) counts[siteOverrides[u.pointId] ?? autoSiteGroup(u.출고장소코드)]++;
+    return counts;
+  }, [items, siteOverrides]);
+  const filteredItems = useMemo(
+    () =>
+      siteFilter === "all"
+        ? items
+        : items.filter(
+            (u) => (siteOverrides[u.pointId] ?? autoSiteGroup(u.출고장소코드)) === siteFilter
+          ),
+    [items, siteFilter, siteOverrides]
+  );
+
   const byRegion = useMemo(() => {
     const map = new Map<string, UnassignedItem[]>();
-    for (const u of items) {
+    for (const u of filteredItems) {
       const key = u.region || "미상";
       map.set(key, [...(map.get(key) ?? []), u]);
     }
@@ -763,9 +794,9 @@ function UnassignedPanel({
         boxes: list.reduce((s, x) => s + x.boxes, 0),
       }))
       .sort((a, b) => b.boxes - a.boxes);
-  }, [items]);
+  }, [filteredItems]);
 
-  const unassignedBoxes = items.reduce((s, x) => s + x.boxes, 0);
+  const unassignedBoxes = filteredItems.reduce((s, x) => s + x.boxes, 0);
 
   const toggleRegion = (region: string) => {
     setCollapsedRegions((prev) => {
@@ -808,12 +839,37 @@ function UnassignedPanel({
   return (
     <Card className={cn(dragOver && "ring-2 ring-primary")} {...dropHandlers}>
       <CardHeader className="flex flex-row items-start justify-between gap-2">
-        <div>
-          <CardTitle className="text-base">기타 (미배차) — 권역별</CardTitle>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-base">기타 (미배차) — 권역별</CardTitle>
+            <Tabs value={siteFilter} onValueChange={(v) => setSiteFilter(v as "all" | SiteGroup)}>
+              <TabsList>
+                <TabsTrigger value="all" className="text-xs">
+                  전체
+                  <Badge variant="secondary" className="ml-1 text-[10px]">
+                    {items.length}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="일성" className="text-xs">
+                  일성
+                  <Badge variant="secondary" className="ml-1 text-[10px]">
+                    {siteCounts.일성}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="대성" className="text-xs">
+                  대성
+                  <Badge variant="secondary" className="ml-1 text-[10px]">
+                    {siteCounts.대성}
+                  </Badge>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
           <CardDescription>
             총 {n(unassignedBoxes)} 박스 ({pct(unassignedBoxes / Math.max(1, totalBoxes), 1)}).
             권역별 소계로 용차 1대에 묶을 수 있는지 판단하십시오. 용차 투입은 담당자 결정입니다 (R-12).
-            업체를 끌어다 기사 티켓에 놓으면 수동으로 배정할 수 있습니다.
+            업체를 끌어다 기사 티켓에 놓으면 수동으로 배정할 수 있습니다. 평택센터(2800) 출고 건은
+            대성, 나머지는 일성으로 자동 구분되며 &ldquo;+&rdquo;에서 직접 바꿀 수 있습니다.
           </CardDescription>
         </div>
         <Button variant="ghost" size="sm" className="shrink-0" onClick={toggleAll}>
@@ -829,6 +885,11 @@ function UnassignedPanel({
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
+        {byRegion.length === 0 && (
+          <div className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+            {siteFilter} 구분에 해당하는 미배차 건이 없습니다.
+          </div>
+        )}
         {byRegion.map(({ region, list, boxes }) => {
           const collapsed = collapsedRegions.has(region);
           const regionFocused = focus?.kind === "region" && focus.id === region;
@@ -896,24 +957,24 @@ function UnassignedPanel({
                           <div className="flex shrink-0 items-start gap-1">
                             <div className="text-right">
                               <div className="text-sm tabular-nums">{n(u.boxes)}</div>
-                              <Badge variant="outline" className="text-[10px]">
-                                {u.reason}
-                              </Badge>
+                              <div className="flex items-center justify-end gap-1">
+                                <Badge variant="outline" className="text-[10px]">
+                                  {siteGroupOf(u)}
+                                </Badge>
+                                <Badge variant="outline" className="text-[10px]">
+                                  {u.reason}
+                                </Badge>
+                              </div>
                             </div>
                             <DropdownMenu>
                               <DropdownMenuTrigger
-                                disabled={!draggableItem}
                                 onClick={(e) => e.stopPropagation()}
                                 render={
                                   <Button
                                     variant="ghost"
                                     size="icon-xs"
-                                    aria-label="기사에게 배정"
-                                    title={
-                                      draggableItem
-                                        ? "기사에게 배정"
-                                        : "좌표가 없어 배정할 수 없습니다"
-                                    }
+                                    aria-label="배정 옵션"
+                                    title="배정 옵션"
                                   />
                                 }
                               >
@@ -921,20 +982,41 @@ function UnassignedPanel({
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuLabel>기사에게 배정</DropdownMenuLabel>
-                                {driverTrips.length === 0 && (
+                                {!draggableItem && (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                    좌표가 없어 배정할 수 없습니다
+                                  </div>
+                                )}
+                                {draggableItem && driverTrips.length === 0 && (
                                   <div className="px-2 py-1.5 text-xs text-muted-foreground">
                                     배차 회전이 없습니다
                                   </div>
                                 )}
-                                {driverTrips.map((t) => (
+                                {draggableItem &&
+                                  driverTrips.map((t) => (
+                                    <DropdownMenuItem
+                                      key={t.id}
+                                      onClick={() => onAssign(u.pointId, t.id)}
+                                    >
+                                      {t.기사명}
+                                      <span className="ml-auto text-[11px] text-muted-foreground">
+                                        {t.tripNo}회전 · {pct(t.loadRate)}
+                                      </span>
+                                    </DropdownMenuItem>
+                                  ))}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuLabel>구분</DropdownMenuLabel>
+                                {(["일성", "대성"] as const).map((g) => (
                                   <DropdownMenuItem
-                                    key={t.id}
-                                    onClick={() => onAssign(u.pointId, t.id)}
+                                    key={g}
+                                    onClick={() =>
+                                      setSiteOverrides((prev) => ({ ...prev, [u.pointId]: g }))
+                                    }
                                   >
-                                    {t.기사명}
-                                    <span className="ml-auto text-[11px] text-muted-foreground">
-                                      {t.tripNo}회전 · {pct(t.loadRate)}
-                                    </span>
+                                    {g}
+                                    {siteGroupOf(u) === g && (
+                                      <Check className="ml-auto size-3.5 text-primary" />
+                                    )}
                                   </DropdownMenuItem>
                                 ))}
                               </DropdownMenuContent>

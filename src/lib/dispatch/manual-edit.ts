@@ -106,6 +106,7 @@ export function unassignedToStop(u: UnassignedItem): Stop {
     contact: u.contact ?? null,
     geo: u.geo,
     manual: true,
+    출고장소코드: u.출고장소코드,
   };
 }
 
@@ -126,5 +127,6 @@ export function stopToUnassigned(s: Stop): UnassignedItem {
     maxTonnage: s.maxTonnage,
     hasExplicitStart: s.hasExplicitStart,
     contact: s.contact,
+    출고장소코드: s.출고장소코드,
   };
 }
