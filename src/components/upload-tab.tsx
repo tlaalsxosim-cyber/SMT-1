@@ -7,7 +7,7 @@
  * 차량 마스터는 읽기 전용이다 — 수정은 파일을 고쳐 다시 올리는 것이 기준이다.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -124,7 +124,9 @@ function DropZone({
   onFile: (f: File | null) => void;
 }) {
   const [over, setOver] = useState(false);
-  const inputId = `file-${title.replace(/\W/g, "")}`;
+  // title에서 파생시키면 한글이 정규식 \W(비-단어 문자)에 걸려 전부 지워지고
+  // 두 드롭존의 id가 우연히 같아질 수 있다 — useId로 항상 고유하게 만든다
+  const inputId = useId();
 
   const accept = useCallback(
     (files: FileList | null) => {
