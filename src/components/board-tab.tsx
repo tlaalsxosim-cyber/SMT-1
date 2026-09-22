@@ -22,8 +22,10 @@ import {
   Map as MapIcon,
   MapPin,
   Package,
+  Plus,
   Sparkles,
   Truck,
+  UndoDot,
 } from "lucide-react";
 
 import { MapView, type MapFocus } from "@/components/map-view";
@@ -31,6 +33,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -67,6 +76,7 @@ export function BoardTab() {
   const { result, downloadResult, downloaded, moveToTrip, moveToUnassigned } = useApp();
   const [focus, setFocus] = useState<MapFocus | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
+  const [boardTab, setBoardTab] = useState<"unassigned" | "address" | "log">("unassigned");
 
   // 기타(미배차)와 기사 티켓이 화면에 동시에 안 보일 만큼 목록이 길 때, 드래그 중
   // 가장자리에서 자동 스크롤되게 한다 (2026-09-21 피드백)
@@ -161,7 +171,10 @@ export function BoardTab() {
             </Card>
           )}
 
-          <Tabs defaultValue="unassigned">
+          <Tabs
+            value={boardTab}
+            onValueChange={(v) => setBoardTab(v as "unassigned" | "address" | "log")}
+          >
             <TabsList>
               <TabsTrigger value="unassigned">
                 기타(미배차)
@@ -190,11 +203,13 @@ export function BoardTab() {
               <UnassignedPanel
                 items={result.unassigned}
                 totalBoxes={result.totalBoxes}
+                trips={result.trips}
                 focus={focus}
                 onFocus={setFocus}
                 onDropUnassigned={(payload) => {
                   if (payload.from !== "unassigned") moveToUnassigned(payload.pointId, payload.from);
                 }}
+                onAssign={(pointId, toTripId) => moveToTrip(pointId, null, toTripId)}
               />
             </TabsContent>
 
@@ -304,6 +319,10 @@ export function BoardTab() {
                   onDropStop={(payload) => {
                     if (payload.from === trip.id) return;
                     moveToTrip(payload.pointId, payload.from === "unassigned" ? null : payload.from, trip.id);
+                  }}
+                  onUnassignStop={(pointId) => {
+                    moveToUnassigned(pointId, trip.id);
+                    setBoardTab("unassigned");
                   }}
                 />
               ))}
@@ -510,6 +529,7 @@ function TripTicket({
   focusedPointId,
   onFocusPoint,
   onDropStop,
+  onUnassignStop,
 }: {
   trip: Trip;
   color: string;
@@ -520,6 +540,8 @@ function TripTicket({
   focusedPointId: string | null;
   onFocusPoint: (pointId: string) => void;
   onDropStop: (payload: DragPayload) => void;
+  /** "+" 메뉴에서 미배차로 이동을 선택했을 때 */
+  onUnassignStop: (pointId: string) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const overCapacity = capacity ? trip.boxes > capacity.최대수량 : false;
@@ -624,17 +646,39 @@ function TripTicket({
                   </div>
                 </div>
               </div>
-              <div className="shrink-0 text-right">
-                <div className="text-sm tabular-nums">{n(s.boxes)}</div>
-                <div
-                  className={cn(
-                    "flex items-center gap-1 text-[11px] tabular-nums",
-                    s.timeOk === false ? "text-destructive" : "text-muted-foreground"
-                  )}
-                >
-                  <Clock className="size-3" />
-                  {hhmm(s.arriveAt)}
+              <div className="flex shrink-0 items-start gap-1">
+                <div className="text-right">
+                  <div className="text-sm tabular-nums">{n(s.boxes)}</div>
+                  <div
+                    className={cn(
+                      "flex items-center gap-1 text-[11px] tabular-nums",
+                      s.timeOk === false ? "text-destructive" : "text-muted-foreground"
+                    )}
+                  >
+                    <Clock className="size-3" />
+                    {hhmm(s.arriveAt)}
+                  </div>
                 </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    onClick={(e) => e.stopPropagation()}
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="배정 옵션"
+                        title="배정 옵션"
+                      />
+                    }
+                  >
+                    <Plus />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => onUnassignStop(s.pointId)}>
+                      <UndoDot className="size-3.5 text-muted-foreground" /> 미배차로 이동
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 
@@ -685,18 +729,27 @@ function TripTicket({
 function UnassignedPanel({
   items,
   totalBoxes,
+  trips,
   focus,
   onFocus,
   onDropUnassigned,
+  onAssign,
 }: {
   items: UnassignedItem[];
   totalBoxes: number;
+  trips: Trip[];
   focus: MapFocus | null;
   onFocus: (f: MapFocus | null) => void;
   onDropUnassigned: (payload: DragPayload) => void;
+  /** "+" 메뉴에서 기사 이름을 선택했을 때 — (pointId, 배정할 회전 id) */
+  onAssign: (pointId: string, toTripId: string) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [collapsedRegions, setCollapsedRegions] = useState<Set<string>>(new Set());
+  const driverTrips = useMemo(
+    () => [...trips].sort((a, b) => a.기사명.localeCompare(b.기사명, "ko") || a.tripNo - b.tripNo),
+    [trips]
+  );
   const byRegion = useMemo(() => {
     const map = new Map<string, UnassignedItem[]>();
     for (const u of items) {
@@ -840,11 +893,52 @@ function UnassignedPanel({
                               </div>
                             </div>
                           </div>
-                          <div className="shrink-0 text-right">
-                            <div className="text-sm tabular-nums">{n(u.boxes)}</div>
-                            <Badge variant="outline" className="text-[10px]">
-                              {u.reason}
-                            </Badge>
+                          <div className="flex shrink-0 items-start gap-1">
+                            <div className="text-right">
+                              <div className="text-sm tabular-nums">{n(u.boxes)}</div>
+                              <Badge variant="outline" className="text-[10px]">
+                                {u.reason}
+                              </Badge>
+                            </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                disabled={!draggableItem}
+                                onClick={(e) => e.stopPropagation()}
+                                render={
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    aria-label="기사에게 배정"
+                                    title={
+                                      draggableItem
+                                        ? "기사에게 배정"
+                                        : "좌표가 없어 배정할 수 없습니다"
+                                    }
+                                  />
+                                }
+                              >
+                                <Plus />
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>기사에게 배정</DropdownMenuLabel>
+                                {driverTrips.length === 0 && (
+                                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                    배차 회전이 없습니다
+                                  </div>
+                                )}
+                                {driverTrips.map((t) => (
+                                  <DropdownMenuItem
+                                    key={t.id}
+                                    onClick={() => onAssign(u.pointId, t.id)}
+                                  >
+                                    {t.기사명}
+                                    <span className="ml-auto text-[11px] text-muted-foreground">
+                                      {t.tripNo}회전 · {pct(t.loadRate)}
+                                    </span>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </div>
                         <div className="mt-1 text-[11px] text-muted-foreground">{u.note}</div>
