@@ -299,14 +299,31 @@ async function geocodeVehicles(
   addressIssues: AddressIssue[]
 ): Promise<Vehicle[]> {
   const out: Vehicle[] = [];
+  let remainderResolved = 0;
 
   for (const v of vehicles) {
     try {
-      const r = await geocode(v.cleanArrival, {
+      let r = await geocode(v.cleanArrival, {
         demo,
         regionHint: regionOfAddress(v.도착지) ?? undefined,
       });
       if (!demo) counter.record("geocode");
+
+      // 잔여 문자열이 있으면 그 부분을 빼고 한 번 더 조회한다 (geocodePoints와 동일한 처리)
+      if (r.result?.remainder) {
+        const stripped = stripRemainder(r.result.queriedAddress, r.result.remainder);
+        if (stripped) {
+          const retry = await geocode(stripped, {
+            demo,
+            regionHint: regionOfAddress(v.도착지) ?? undefined,
+          });
+          if (!demo) counter.record("geocode");
+          if (retry.result) {
+            if (!retry.failure) remainderResolved++;
+            r = retry;
+          }
+        }
+      }
 
       if (r.result) {
         out.push({ ...v, arrivalGeo: r.result });
@@ -349,7 +366,30 @@ async function geocodeVehicles(
     }
   }
 
+  if (remainderResolved > 0) {
+    issues.push({
+      level: "info",
+      code: "FR-23",
+      message: `기사 도착지 ${remainderResolved}곳은 주소 끝의 해석되지 않은 잔여 문자열을 빼고 재조회해 확정했습니다`,
+    });
+  }
+
   return out;
+}
+
+/**
+ * TMAP이 remainder로 돌려준(=해석하지 못한) 잔여 문자열을 주소에서 지운다.
+ * 대개 도로명 뒤에 붙은 회사명·건물명 꼬리다(`... 40 동원홈푸드 양산센터`의
+ * `동원홈푸드 양산센터`처럼). remainder가 주소 문자열에 그대로 없으면(공백 정규화
+ * 차이 등) null을 돌려주고, 호출부는 원래 결과를 그대로 쓴다.
+ */
+function stripRemainder(address: string, remainder: string): string | null {
+  const idx = address.indexOf(remainder);
+  if (idx === -1) return null;
+  const stripped = (address.slice(0, idx) + address.slice(idx + remainder.length))
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return stripped && stripped !== address ? stripped : null;
 }
 
 async function geocodePoints(
@@ -359,6 +399,7 @@ async function geocodePoints(
   addressIssues: AddressIssue[]
 ): Promise<DeliveryPoint[]> {
   const out: DeliveryPoint[] = [];
+  let remainderResolved = 0;
 
   for (const p of points) {
     try {
@@ -372,6 +413,21 @@ async function geocodePoints(
       if (!r.result && p.cleanAddress !== p.address) {
         r = await geocode(p.address, { demo, regionHint: p.parsedName.region || undefined });
         if (!demo) counter.record("geocode");
+      }
+
+      // 잔여 문자열이 있으면 그 부분을 빼고 한 번 더 조회한다 — 회사명·건물명 꼬리가
+      // 도로명 매칭을 방해했을 뿐, 나머지 주소만으로 깨끗하게 잡히는 경우가 많다.
+      // 재조회가 실패하거나 여전히 remainder가 남으면 원래 결과를 그대로 쓴다.
+      if (r.result?.remainder) {
+        const stripped = stripRemainder(r.result.queriedAddress, r.result.remainder);
+        if (stripped) {
+          const retry = await geocode(stripped, { demo, regionHint: p.parsedName.region || undefined });
+          if (!demo) counter.record("geocode");
+          if (retry.result) {
+            if (!retry.failure) remainderResolved++;
+            r = retry;
+          }
+        }
       }
 
       if (r.result) {
@@ -415,6 +471,14 @@ async function geocodePoints(
         subject: p.parsedName.company,
       });
     }
+  }
+
+  if (remainderResolved > 0) {
+    issues.push({
+      level: "info",
+      code: "FR-23",
+      message: `${remainderResolved}곳은 주소 끝의 해석되지 않은 잔여 문자열(회사명·건물명 등)을 빼고 재조회해 확정했습니다`,
+    });
   }
 
   return out;
