@@ -22,7 +22,7 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "AI 기반 일일 배송 최적화 시스템",
   description:
-    "출고등록현황과 차량 톤수 마스터를 업로드해 기사 9명·12회전 배차 코스를 자동 편성합니다. 데이터베이스를 쓰지 않는 무저장 구조.",
+    "배차정보와 차량정보 마스터를 업로드해 기사 9명·12회전 배차 코스를 자동 편성합니다. 데이터베이스를 쓰지 않는 무저장 구조.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

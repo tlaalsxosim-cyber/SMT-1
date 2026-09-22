@@ -283,7 +283,7 @@ function buildAddressSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
     ws.addRow({});
     ws.addRow({
       company: "안내",
-      raw: "AI 제안은 참고용입니다. 원본 출고등록현황.xlsx의 주소를 고쳐 다시 업로드해야 좌표가 확정됩니다.",
+      raw: "AI 제안은 참고용입니다. 원본 배차정보.xlsx의 주소를 고쳐 다시 업로드해야 좌표가 확정됩니다.",
     }).font = { italic: true };
   }
 }

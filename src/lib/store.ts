@@ -116,7 +116,7 @@ export const useApp = create<AppState>((set, get) => ({
   async parseFiles() {
     const { shipmentFile, fleetFile } = get();
     if (!shipmentFile || !fleetFile) {
-      set({ parseError: "출고등록현황과 차량 톤수 파일을 모두 올려야 합니다" });
+      set({ parseError: "배차정보와 차량정보 파일을 모두 올려야 합니다" });
       return;
     }
 

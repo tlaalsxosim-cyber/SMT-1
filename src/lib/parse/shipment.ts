@@ -121,7 +121,7 @@ export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
   const missing = REQUIRED_COLUMNS.filter((c) => !table.headers.includes(c));
   if (missing.length) {
     throw new Error(
-      `출고등록현황 필수 컬럼이 없습니다: ${missing.join(", ")}\n` +
+      `배차정보 필수 컬럼이 없습니다: ${missing.join(", ")}\n` +
         `발견된 컬럼: ${table.headers.join(", ")}`
     );
   }

@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   if (!(shipmentFile instanceof File) || !(fleetFile instanceof File)) {
     return NextResponse.json(
       {
-        error: "출고등록현황과 차량 톤수 파일을 모두 올려야 합니다",
+        error: "배차정보와 차량정보 파일을 모두 올려야 합니다",
         hint: "두 파일은 항상 함께 업로드합니다 (무저장 구조 — 매회 전체 입력)",
       },
       { status: 400 }

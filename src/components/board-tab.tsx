@@ -89,7 +89,7 @@ export function BoardTab() {
           <Truck className="size-10 text-muted-foreground" />
           <div className="text-lg font-medium">아직 배차 결과가 없습니다</div>
           <p className="max-w-md text-sm text-muted-foreground">
-            데이터 업로드 탭에서 출고등록현황과 차량_톤수 파일을 올린 뒤 배차를 실행하십시오.
+            데이터 업로드 탭에서 배차정보와 차량정보 파일을 올린 뒤 배차를 실행하십시오.
           </p>
         </CardContent>
       </Card>

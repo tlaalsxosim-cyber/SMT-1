@@ -58,13 +58,13 @@ export function UploadTab() {
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2">
         <DropZone
-          title="출고등록현황.xlsx"
+          title="배차정보.xlsx"
           description="일일 변동 — ERP에서 내려받은 원본"
           file={shipmentFile}
           onFile={setShipmentFile}
         />
         <DropZone
-          title="차량_톤수.xlsx"
+          title="차량정보.xlsx"
           description="기사 · 적재범위 · 회전수 · 도착지 (고정)"
           file={fleetFile}
           onFile={setFleetFile}
@@ -402,7 +402,7 @@ function PreviewPanel({ preview }: { preview: ParseResponse }) {
             <CardHeader>
               <CardTitle className="text-base">차량 마스터 (읽기 전용)</CardTitle>
               <CardDescription>
-                화면에서 수정할 수 없습니다. 값을 바꾸려면 차량_톤수.xlsx를 고쳐 다시 업로드하십시오 (§11 ②).
+                화면에서 수정할 수 없습니다. 값을 바꾸려면 차량정보.xlsx를 고쳐 다시 업로드하십시오 (§11 ②).
               </CardDescription>
             </CardHeader>
             <CardContent className="px-0">
