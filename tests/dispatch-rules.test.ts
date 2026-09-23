@@ -428,3 +428,76 @@ describe("R-06 — 다회전 분할은 같은 차량 안에서만 (분할잔여 
     expect(r.trips.map((t) => t.boxes).sort((a, b) => b - a)).toEqual([700, 673]);
   });
 });
+
+describe("R-20 — 같은 주소는 무조건 같은 회전 (요청 2026-09-23)", () => {
+  const SAME_ADDR = "경기도 용인시 처인구 중부대로 1199";
+
+  it("같은 주소 2개사가 항상 같은 회전에 담긴다", () => {
+    const a = point("A업체", 100, SAME_ADDR, 용인);
+    const b = point("B업체", 80, SAME_ADDR, 용인);
+    const v = vehicle({ 최소수량: 50, 최대수량: 300, 최소업체수: 1, 최대업체수: 2 });
+
+    const r = assignDispatch([a, b], [v], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(1);
+    expect(r.trips[0].points.map((p) => p.parsedName.company).sort()).toEqual(["A업체", "B업체"]);
+    expect(r.unassigned).toHaveLength(0);
+    expect(r.issues.some((i) => i.code === "R-20" && i.level === "info")).toBe(true);
+  });
+
+  it("그룹 전체를 실을 수 있는 차량이 없으면 쪼개지 않고 통째로 기타(주소동일잔여)로 남는다", () => {
+    const a = point("A업체", 900, SAME_ADDR, 용인);
+    const b = point("B업체", 900, SAME_ADDR, 용인);
+    // 어느 차량도 합계 1,800박스를 못 싣는다(최대 1,200)
+    const v = vehicle({ 최소수량: 50, 최대수량: 1200, 최소업체수: 1, 최대업체수: 2 });
+
+    const r = assignDispatch([a, b], [v], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(0);
+    expect(r.unassigned).toHaveLength(2);
+    expect(r.unassigned.every((u) => u.reason === "주소동일잔여")).toBe(true);
+  });
+
+  it("그룹 안에 조기납품 대상이 2곳이면 기사당 1곳(R-08)과 충돌해 배차되지 않는다", () => {
+    const earlyTime = {
+      windows: [{ start: 8 * 60, end: 10 * 60 }],
+      columnRaw: "~10:00",
+      fromColumn: [{ start: 8 * 60, end: 10 * 60 }],
+      nameRaw: "",
+      fromName: [],
+      remarkRaw: null,
+      fromRemark: [],
+      conflict: false,
+      mismatch: "none" as const,
+      advisory: false,
+      assumedOperating: false,
+      hasExplicitStart: false,
+      adopted: "column" as const,
+      note: "",
+    };
+    const a = { ...point("A업체", 100, SAME_ADDR, 용인), time: earlyTime };
+    const b = { ...point("B업체", 80, SAME_ADDR, 용인), time: earlyTime };
+    const v = vehicle({ 최소수량: 50, 최대수량: 300, 최소업체수: 1, 최대업체수: 2 });
+
+    const r = assignDispatch([a, b], [v], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(0);
+    expect(r.unassigned).toHaveLength(2);
+    expect(r.unassigned.every((u) => u.reason === "주소동일잔여")).toBe(true);
+  });
+
+  it("R-06 분할 조각은 같은 주소라도 그룹화 대상이 아니다", () => {
+    const big = point("미담", 1373, SAME_ADDR, 용인);
+    // 분할 조각과 같은 주소를 쓰는 별개 소량 업체
+    const small = point("소량업체", 50, SAME_ADDR, 용인);
+    const twoTrip = vehicle({ id: "V01", 회전수: 2, 최소수량: 50, 최대수량: 1200 });
+
+    const r = assignDispatch([big, small], [twoTrip], { centerGeo: CENTER });
+
+    // 미담은 기존 R-06대로 1,200 + 173으로 분할되고, 소량업체는 별도로 처리된다
+    // (분할 조각과 하드 묶이지 않으므로 크래시 없이 정상 처리되는지만 확인한다)
+    const assignedBoxes = r.trips.flatMap((t) => t.points).reduce((s, p) => s + p.boxes, 0);
+    const unassignedBoxes = r.unassigned.reduce((s, u) => s + u.boxes, 0);
+    expect(assignedBoxes + unassignedBoxes).toBe(1373 + 50);
+  });
+});

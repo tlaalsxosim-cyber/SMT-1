@@ -183,6 +183,23 @@ DB·ORM·파일 저장소가 없고, `localStorage`/`sessionStorage`/IndexedDB�
 차량 마스터에 `파렛트상한` 컬럼이 없으면(현재 실데이터가 그렇다) R-19는 전혀 발동하지 않습니다
 (OI-17) — `acceptance.test.ts`/`pipeline.test.ts`가 그대로 통과하는 것으로 확인했습니다.
 
+**같은 주소 하드 묶음(R-20)은 DeliveryPoint를 합치지 않고 "원자적 선택"으로 구현합니다
+(요청 2026-09-23)** — 같은 주소 배송지는 좌표가 사실상 같아 `simulateTrip`이 이미 각자를
+개별 Stop으로 순차 검증하므로, 시간창을 억지로 교집합 계산할 필요가 없습니다. 대신
+`assign.ts`의 `reserveSiteGroups`가 그룹을 실을 차량 하나를 **정적 용량만** 보고 미리
+정해(`siteGroupVehicleId`, R-06의 `splitVehicleId`와 같은 예약 방식) 그 차량의 후보
+풀에서만 나타나게 하고, `growCluster`는 씨앗이 묶음의 일원이면 풀에 남은 나머지 멤버
+전원을 시작부터 `chosen`에 같이 넣습니다(증분 성장 루프의 `feasible` 필터는
+`c.siteGroupId`가 있는 후보를 한 명씩 붙이는 것 자체를 막습니다 — 묶음은 오직 씨앗
+확장으로만 들어옵니다). 이 씨앗 확장 안에 조기납품(R-08) 플래그가 2곳 이상이면
+"기사당 1곳"을 하드 묶음으로 어기게 되므로 그 조합은 항상 `null`을 반환해 `diagnose()`가
+사유(「주소동일잔여」)로 설명하게 둡니다. R-06 분할 조각(`splitFrom`)은 이미 다른 차량에
+하드 고정돼 있어 그룹화 대상에서 뺍니다 — 두 하드 규칙이 얽히는 조합은 실사례가 없어
+범위 밖으로 뒀습니다. **2026-09-15 실데이터에는 같은 주소 그룹이 0건**이라 이 규칙은
+실데이터로 검증하지 못했습니다(OI-19) — `acceptance.test.ts`/`pipeline.test.ts` 무변화로
+"최소한 해를 끼치지 않는다"만 확인했고, 하드 묶기 자체는 `dispatch-rules.test.ts`의 합성
+데이터로만 고정돼 있습니다.
+
 **배차 보드 수동 조정은 서버 재계산 로직을 클라이언트에 복제해 둔 것입니다** —
 `src/lib/dispatch/manual-edit.ts`의 `recomputeTrip`이 `pipeline/run.ts`의 `buildTrip`과 똑같이
 `simulateTrip` + `applyWaiting`을 조합해 방문 순서·도착시각·거리를 다시 계산합니다. 두 곳 다

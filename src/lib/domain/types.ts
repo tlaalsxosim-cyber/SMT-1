@@ -199,6 +199,10 @@ export interface DeliveryPoint {
   splitIndex?: number;
   /** 분할 조각이 배정된 차량 id — 이 차량의 회전에서만 후보가 된다 (R-06, 다른 차량으로 넘기지 않음) */
   splitVehicleId?: string;
+  /** 같은 주소를 공유하는 배송지 2곳 이상일 때만 부여되는 묶음 id (R-20) */
+  siteGroupId?: string;
+  /** 그 주소 묶음을 배정하기로 정한 차량 id — 이 차량의 회전에서만 후보가 된다 (R-20) */
+  siteGroupVehicleId?: string;
   /** 품번별 수량 — 파렛트수 계산용 (R-19). 품목마다 파렛트 적재수량이 다르므로 박스 합계만으로는 계산할 수 없다 */
   items: { 품번: string; boxes: number }[];
   /**
@@ -290,6 +294,7 @@ export type UnassignedReason =
   | "대형차단독"
   | "수도권외"
   | "적재하한미달"
+  | "주소동일잔여"
   | "수동조정";
 
 /** 미배차 물류사 구분 — 평택센터(출고장소코드 2800) 출고면 대성, 그 외는 일성 */

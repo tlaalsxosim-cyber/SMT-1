@@ -4,7 +4,8 @@
  * TMAP은 "차량 한 대 안의 방문 순서"만 정한다. **어느 차량이 어디를 가는가**는 여기서 정한다.
  *
  * 알고리즘 개요
- *   1. 전처리 — 좌표 없는 배송지 제외(R-13), 다회전 차량 전용 분할(R-06), 조기납품 판정(R-08)
+ *   1. 전처리 — 좌표 없는 배송지 제외(R-13), 다회전 차량 전용 분할(R-06),
+ *      같은 주소 배송지 하드 묶음(R-20), 조기납품 판정(R-08)
  *   2. 회전 슬롯 생성 — 적재 상한이 큰 차량부터, 같은 차량은 회전 순서대로
  *   3. 슬롯마다 모든 후보를 씨앗으로 삼아 클러스터를 키워 보고 가장 효율적인 조합을 채택
  *      — 후보를 붙일 때 1순위는 같은 권역, 2순위는 거리로 근사한 권역 주변(R-07)
@@ -202,6 +203,102 @@ export function isLargeVehicle(v: Pick<Vehicle, "tonnage">): boolean {
 }
 
 /**
+ * 주소 묶음(R-20)을 실을 차량을 고른다 — **정적 용량만** 본다(최소수량/최소업체수
+ * 하한은 검사하지 않는다. 남은 자리는 다른 후보로 채우면 된다).
+ * 최대수량 오름차순으로 골라, 꼭 필요한 것보다 큰 차량을 불필요하게 점유하지 않는다.
+ */
+function pickSiteGroupVehicle(group: DeliveryPoint[], vehicles: Vehicle[]): Vehicle | null {
+  const totalBoxes = group.reduce((s, p) => s + p.boxes, 0);
+  const tonnageLimits = group.map((p) => p.maxTonnage).filter((t): t is number => t !== null);
+  const tonnageLimit = tonnageLimits.length > 0 ? Math.min(...tonnageLimits) : Infinity;
+
+  const sorted = [...vehicles].sort((a, b) => a.최대수량 - b.최대수량 || a.id.localeCompare(b.id));
+  return (
+    sorted.find(
+      (v) => totalBoxes <= v.최대수량 && group.length <= v.최대업체수 && v.tonnage <= tonnageLimit
+    ) ?? null
+  );
+}
+
+/**
+ * 같은 주소 배송지를 한 회전에 묶는다 (R-20, 요청 2026-09-23)
+ *
+ * 좌표가 사실상 같으므로 시간창을 억지로 교집합 계산할 필요가 없다 — `simulateTrip`이
+ * 이미 각 배송지를 개별 Stop으로 순차 검증한다. 여기서는 "이 그룹은 항상 함께
+ * 고려된다"는 원자성만 보장한다: DeliveryPoint를 하나로 합치지 않고, 그룹을 실을
+ * 차량 하나를 미리 정해(`siteGroupVehicleId`) 그 차량의 후보 풀에서만 나타나게 하고,
+ * `growCluster`가 씨앗을 그 그룹 전체로 확장해서 붙인다(아래 `growCluster` 참고).
+ *
+ * R-06 분할 조각(`splitFrom`)은 이미 특정 차량에 하드 고정돼 있어 그룹화 대상에서
+ * 뺀다 — 두 하드 규칙이 얽히는 조합은 실사례가 없어 지금은 범위 밖으로 둔다.
+ *
+ * 그룹 전체를 실을 차량이 없으면(정적 용량조차 안 맞으면) 쪼개서 일부만 배차하지
+ * 않는다 — R-06·R-18과 같은 원칙으로, 통째로 기타에 남겨 사유와 함께 보여 준다.
+ */
+function reserveSiteGroups(
+  points: DeliveryPoint[],
+  vehicles: Vehicle[]
+): { points: DeliveryPoint[]; unassignedGroups: DeliveryPoint[][]; issues: Issue[] } {
+  const issues: Issue[] = [];
+
+  const bySite = new Map<string, DeliveryPoint[]>();
+  for (const p of points) {
+    if (p.splitFrom) continue;
+    const key = siteKey(p.cleanAddress || p.address);
+    if (!key) continue;
+    bySite.set(key, [...(bySite.get(key) ?? []), p]);
+  }
+
+  const groupOf = new Map<string, string>();
+  const vehicleOf = new Map<string, string>();
+  const unassignedGroups: DeliveryPoint[][] = [];
+  let idx = 0;
+
+  for (const [address, members] of bySite) {
+    if (members.length < 2) continue;
+    idx += 1;
+    const groupId = `SITE${idx}`;
+    const names = members.map((m) => m.parsedName.company).join(", ");
+    const vehicle = pickSiteGroupVehicle(members, vehicles);
+
+    if (!vehicle) {
+      unassignedGroups.push(members);
+      issues.push({
+        level: "warning",
+        code: "R-20",
+        message: `같은 주소 ${members.length}곳(${names})을 한 회전에 실을 수 있는 차량이 없어 통째로 기타로 남깁니다`,
+        subject: names,
+        detail: address,
+      });
+      continue;
+    }
+
+    for (const m of members) {
+      groupOf.set(m.id, groupId);
+      vehicleOf.set(m.id, vehicle.id);
+    }
+    issues.push({
+      level: "info",
+      code: "R-20",
+      message: `같은 주소 ${members.length}곳(${names})을 ${vehicle.기사명} 차량 한 회전에 묶어 배정합니다`,
+      subject: names,
+      detail: address,
+    });
+  }
+
+  const excludedIds = new Set(unassignedGroups.flat().map((m) => m.id));
+  const out = points
+    .filter((p) => !excludedIds.has(p.id))
+    .map((p) =>
+      groupOf.has(p.id)
+        ? { ...p, siteGroupId: groupOf.get(p.id), siteGroupVehicleId: vehicleOf.get(p.id) }
+        : p
+    );
+
+  return { points: out, unassignedGroups, issues };
+}
+
+/**
  * 권역 정규화 키 (R-07 1순위, 현업 확정 2026-09-23) — 납품처명 3번째 토큰을 시·군 단위로 정규화한 값.
  * 클러스터에 후보를 붙일 때 같은 권역을 최우선으로 삼는다. 권역 간 인접 관계 데이터가
  * 없으므로 "권역 주변"(2순위)은 거리로 근사한다 — 같은 권역 후보가 없으면 자연스럽게
@@ -311,26 +408,48 @@ function growCluster(
   const { vehicle } = ctx;
   const large = isLargeVehicle(vehicle);
 
-  if (seed.boxes > vehicle.최대수량) return null;
-  if (vehicle.palletLimit != null && seed.pallets != null && seed.pallets > vehicle.palletLimit) {
-    return null;
-  }
+  /**
+   * R-20 — 씨앗이 주소 묶음(R-20)의 일원이면, 풀에 남은 같은 묶음 멤버 전원을
+   * 처음부터 함께 넣고 시작한다(묶음이 없으면 씨앗 혼자다 — 기존과 동일). 묶음은
+   * 원자 단위다 — 뒤이은 증분 성장 루프에서는 한 명씩 붙지 않는다(아래 `feasible`
+   * 필터의 `c.siteGroupId` 배제 참고).
+   */
+  const siteGroupSiblings = seed.siteGroupId
+    ? pool.filter((p) => p.siteGroupId === seed.siteGroupId && p.id !== seed.id)
+    : [];
+  const chosen: DeliveryPoint[] = [seed, ...siteGroupSiblings];
 
-  const chosen: DeliveryPoint[] = [seed];
-  let boxes = seed.boxes;
+  let boxes = chosen.reduce((s, p) => s + p.boxes, 0);
+  if (boxes > vehicle.최대수량) return null;
+  if (chosen.length > vehicle.최대업체수) return null;
+
+  /**
+   * R-08과의 충돌 가드 — 묶음 안에 조기납품 대상이 2곳 이상이면 기사당 1곳(R-08,
+   * 현업 확정)을 하드 묶음으로 어기게 된다. 이런 조합은 항상 실현 불가로 두고
+   * `diagnose()`가 사유를 설명하게 한다.
+   */
+  const earlyInGroup = chosen.filter((p) => ctx.earlySet.has(p.id)).length;
+  if (earlyInGroup > 1) return null;
+
   /**
    * R-19 — 파렛트 누적. 담긴 배송지 중 하나라도 파렛트수를 모르면(`pallets === null`)
    * 그 뒤로는 누적값을 신뢰할 수 없으므로 더 이상 이 제약으로 막지 않는다
    * (`vehicle.palletLimit`이 있는 마스터가 아직 없어 지금은 항상 비활성이다 — OI-17).
    */
-  let pallets = seed.pallets ?? 0;
-  let palletsKnown = seed.pallets !== null;
-  let earlyUsed = ctx.earlySet.has(seed.id) ? 1 : 0;
+  let pallets = 0;
+  let palletsKnown = true;
+  for (const p of chosen) {
+    if (p.pallets === null) palletsKnown = false;
+    else pallets += p.pallets;
+  }
+  if (vehicle.palletLimit != null && palletsKnown && pallets > vehicle.palletLimit) return null;
+
+  let earlyUsed = earlyInGroup;
 
   let sim = simulateTrip(ctx.centerGeo, chosen.map(toSimStop), ctx.endGeo, ctx.departAt);
   if (!sim.feasible) return null;
 
-  const rejected = new Set<string>([seed.id]);
+  const rejected = new Set<string>(chosen.map((p) => p.id));
 
   while (chosen.length < vehicle.최대업체수) {
     const room = vehicle.최대수량 - boxes;
@@ -361,6 +480,8 @@ function growCluster(
         return false;
       // 같은 납품처의 다른 분할 조각은 한 회전에 같이 싣지 않는다
       if (c.splitFrom && chosen.some((x) => x.splitFrom === c.splitFrom)) return false;
+      // R-20 — 주소 묶음 멤버는 씨앗 확장으로만 들어온다. 한 명씩 붙이지 않는다
+      if (c.siteGroupId) return false;
       /**
        * R-07 — 이미 담긴 배송지 **전부**와 maxSpreadKm 이내여야 후보가 된다.
        * 가장 가까운 곳만 보면(체이닝) 한 걸음씩은 가까워도 전체 회전의 양 끝은
@@ -520,13 +641,21 @@ export function assignDispatch(
   }
 
   const maxCapacity = Math.max(...vehicles.map((v) => v.최대수량));
-  const { points: workingPoints, issues: splitIssues } = reserveMultiTripSplits(
+  const { points: splitPoints, issues: splitIssues } = reserveMultiTripSplits(
     metroPoints,
     vehicles,
     maxCapacity,
     secondTripMinDeadline
   );
   issues.push(...splitIssues);
+
+  // R-20 — 같은 주소 배송지는 무조건 같은 회전에 묶는다 (요청 2026-09-23)
+  const {
+    points: workingPoints,
+    unassignedGroups: siteGroupLeftover,
+    issues: siteGroupIssues,
+  } = reserveSiteGroups(splitPoints, vehicles);
+  issues.push(...siteGroupIssues);
 
   const earlySet = new Set(
     workingPoints.filter((p) => isEarlyDelivery(p, earlyMode)).map((p) => p.id)
@@ -609,6 +738,8 @@ export function assignDispatch(
        * 그래야 조각이 다른 차량으로 흩어지지 않는다.
        */
       if (p.splitVehicleId && p.splitVehicleId !== vehicle.id) return false;
+      /** R-20 — 같은 주소 묶음은 예약된 차량에서만 후보가 된다 (R-06과 같은 방식) */
+      if (p.siteGroupVehicleId && p.siteGroupVehicleId !== vehicle.id) return false;
       if (earlySet.has(p.id) && !allowEarly) return false;
       if (deadlineFloor !== null && !allowedOnSecondTrip(p, deadlineFloor)) return false;
       return true;
@@ -708,6 +839,33 @@ export function assignDispatch(
     });
   }
 
+  // R-20 — 같은 주소 그룹을 통째로 실을 차량이 없었던 건 (정적 용량조차 안 맞음)
+  for (const group of siteGroupLeftover) {
+    const names = group.map((m) => m.parsedName.company).join(", ");
+    for (const p of group) {
+      unassigned.push({
+        pointId: p.id,
+        company: p.parsedName.company,
+        region: p.parsedName.region,
+        address: p.address,
+        boxes: p.boxes,
+        timeRaw: p.time.columnRaw ?? p.parsedName.conditionText,
+        reason: "주소동일잔여",
+        note: `같은 주소 ${group.length}곳(${names})을 한 회전에 실을 수 있는 차량이 없어 통째로 기타로 남았습니다 (R-20)`,
+        geo: p.geo,
+        windows: p.time.windows,
+        tags: p.tags,
+        maxTonnage: p.maxTonnage,
+        pallets: p.pallets,
+        hasExplicitStart: p.time.hasExplicitStart,
+        contact: p.contact,
+        출고장소코드: p.출고장소코드,
+        출고장소: p.출고장소,
+        siteGroup: autoSiteGroup(p.출고장소코드),
+      });
+    }
+  }
+
   for (const p of geoMissing) {
     unassigned.push({
       pointId: p.id,
@@ -787,6 +945,20 @@ function diagnose(
       ...base,
       reason: "분할잔여",
       note: `초과 물량 분할 ${p.splitIndex}번째 조각을 실을 회전이 남지 않았습니다`,
+    };
+  }
+
+  /**
+   * R-20 — 같은 주소 묶음이 예약된 차량까지는 배정됐지만, 그 차량의 회전 전부에서
+   * 시간창·적재 등 다른 제약에 걸려 실지 못했다. 예약이 무의미해 보이지 않도록
+   * 예약된 기사명을 사유에 남긴다 — "차는 놀고 있는데 왜?"에 답할 수 있어야 한다.
+   */
+  if (p.siteGroupVehicleId) {
+    const host = vehicles.find((v) => v.id === p.siteGroupVehicleId);
+    return {
+      ...base,
+      reason: "주소동일잔여",
+      note: `같은 주소 배송지를 ${host?.기사명 ?? p.siteGroupVehicleId} 차량 한 회전에 묶어 실으려 했으나, 그 차량의 회전에서 다른 제약(시간창·적재 등)에 걸려 배정하지 못했습니다 (R-20)`,
     };
   }
 
