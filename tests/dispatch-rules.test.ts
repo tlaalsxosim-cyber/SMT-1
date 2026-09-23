@@ -200,6 +200,50 @@ describe("R-17 — 대형차는 회전당 1업체", () => {
   });
 });
 
+describe("R-07 1순위 — 권역 우선, 거리는 권역 주변 근사 (현업 확정 2026-09-23)", () => {
+  const small = (over: Partial<Vehicle> = {}) =>
+    vehicle({
+      id: "V03",
+      톤수라벨: "1톤",
+      tonnage: 1,
+      최소수량: 100,
+      최대수량: 300,
+      최소업체수: 1,
+      최대업체수: 2,
+      ...over,
+    });
+
+  it("더 가까워도 다른 권역보다 같은 권역 후보를 먼저 붙인다", () => {
+    const seed = point("씨앗", 100, "경기도 용인시 처인구 중부대로 1199", 용인, "용인");
+    // 씨앗과 같은 권역이지만 더 멀다 (약 16km)
+    const sameRegionFar = point(
+      "같은권역",
+      80,
+      "경기도 용인시 기흥구 포곡로 999",
+      { lat: 37.35, lon: 127.3 },
+      "용인"
+    );
+    // 씨앗과 권역은 다르지만 훨씬 가깝다 (약 0.6km)
+    const otherRegionNear = point("다른권역", 80, "경기도 성남시 분당구 판교로 1", 용인2, "성남");
+
+    const r = assignDispatch([seed, sameRegionFar, otherRegionNear], [small()], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(1);
+    expect(r.trips[0].points.map((p) => p.parsedName.company).sort()).toEqual(["같은권역", "씨앗"]);
+    expect(r.unassigned.map((u) => u.company)).toEqual(["다른권역"]);
+  });
+
+  it("같은 권역 후보가 없으면 거리가 가까운 다른 권역을 2순위로 택한다", () => {
+    const seed = point("씨앗", 100, "경기도 용인시 처인구 중부대로 1199", 용인, "용인");
+    const otherRegionNear = point("다른권역", 80, "경기도 성남시 분당구 판교로 1", 용인2, "성남");
+
+    const r = assignDispatch([seed, otherRegionNear], [small()], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(1);
+    expect(r.trips[0].points.map((p) => p.parsedName.company).sort()).toEqual(["다른권역", "씨앗"]);
+  });
+});
+
 describe("R-18 — 천안 이남은 지입 배차에서 제외", () => {
   it("북쪽 대안이 있으면 북쪽을 태운다", () => {
     const north = point("용인업체", 700, "경기도 용인시 처인구 중부대로 1199", 용인);

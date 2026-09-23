@@ -7,6 +7,7 @@
  *   1. 전처리 — 좌표 없는 배송지 제외(R-13), 다회전 차량 전용 분할(R-06), 조기납품 판정(R-08)
  *   2. 회전 슬롯 생성 — 적재 상한이 큰 차량부터, 같은 차량은 회전 순서대로
  *   3. 슬롯마다 모든 후보를 씨앗으로 삼아 클러스터를 키워 보고 가장 효율적인 조합을 채택
+ *      — 후보를 붙일 때 1순위는 같은 권역, 2순위는 거리로 근사한 권역 주변(R-07)
  *   4. 각 조합은 직선거리 근사로 시간 실현성을 검증(FR-30) — 최종 검증은 TMAP arriveTime
  *   5. 남은 물량은 사유 코드와 함께 기타로 이관(R-12, FR-43)
  *
@@ -41,7 +42,7 @@ import type {
   UnassignedReason,
   Vehicle,
 } from "@/lib/domain/types";
-import { siteKey } from "@/lib/structure/delivery-name";
+import { normalizeRegion, siteKey } from "@/lib/structure/delivery-name";
 import { earliestDeadline, latestDeadline, windowSpan } from "@/lib/structure/time-window";
 import { distKm } from "./distance";
 import { simulateTrip, type SimResult, type SimStop } from "./feasibility";
@@ -200,6 +201,17 @@ export function isLargeVehicle(v: Pick<Vehicle, "tonnage">): boolean {
   return v.tonnage >= LARGE_VEHICLE_TONNAGE;
 }
 
+/**
+ * 권역 정규화 키 (R-07 1순위, 현업 확정 2026-09-23) — 납품처명 3번째 토큰을 시·군 단위로 정규화한 값.
+ * 클러스터에 후보를 붙일 때 같은 권역을 최우선으로 삼는다. 권역 간 인접 관계 데이터가
+ * 없으므로 "권역 주변"(2순위)은 거리로 근사한다 — 같은 권역 후보가 없으면 자연스럽게
+ * 거리순 정렬로 넘어간다. 45km 하드 상한(R-07 본 규칙)은 그대로 유지되고, 이건 그 안의
+ * 정렬 우선순위일 뿐이다(하드 필터 아님) — 권역이 갈려도 45km 이내면 여전히 후보가 된다.
+ */
+function regionKeyOf(p: DeliveryPoint): string {
+  return normalizeRegion(p.parsedName.region);
+}
+
 /** 같은 장소인지 (R-17) — 층·도크·건물명을 뺀 주소가 같으면 같은 장소로 본다 */
 export function isSameSite(a: DeliveryPoint, b: DeliveryPoint): boolean {
   const ka = siteKey(a.cleanAddress || a.address);
@@ -355,10 +367,18 @@ function growCluster(
           : boxesNeeded
         : null;
 
+    /**
+     * R-07 1순위 — 이미 담긴 배송지와 같은 권역인 후보를 먼저 붙인다.
+     * 같은 권역 후보가 없으면 거리순으로 가까운 다른 권역이 그대로 2순위(권역 주변) 역할을 한다.
+     */
+    const chosenRegions = new Set(chosen.map(regionKeyOf));
+    const regionRank = (c: DeliveryPoint) => (chosenRegions.has(regionKeyOf(c)) ? 0 : 1);
+
     const byDistance = [...feasible].sort(
       (a, b) =>
+        regionRank(a) - regionRank(b) ||
         Math.min(...chosen.map((x) => distKm(x.geo!, a.geo!))) -
-        Math.min(...chosen.map((x) => distKm(x.geo!, b.geo!)))
+          Math.min(...chosen.map((x) => distKm(x.geo!, b.geo!)))
     );
     const distanceRank = new Map(byDistance.map((c, i) => [c.id, i]));
 
@@ -415,7 +435,12 @@ function growCluster(
  * 1순위는 **적재율**이다. 박스당 주행거리만 보면 10톤 차량이 1,200박스짜리 대형 물량 대신
  * 가까운 소형 묶음(530박스)을 집는다. 소화하지 못한 물량은 그대로 용차 비용이 되므로,
  * 미적재 용량을 가장 무겁게 벌점 매긴다.
- * 2순위는 박스당 주행거리와 공차 귀가 거리(G3), 3순위는 마감 임박 배송지 포함 여부(§6.1).
+ * 2순위는 박스당 주행거리·공차 귀가 거리(G3)와 **권역 분산**(R-07 1순위, 현업 확정
+ * 2026-09-23) — growCluster의 붙이기 순서가 같은 권역을 우선하더라도, 씨앗을 바꿔가며
+ * 전체에서 가장 효율적인 조합을 고르는 이 단계에서 물리적 거리만 보면 그 우선순위가
+ * 뒤집힐 수 있다. 조합에 섞인 권역 수만큼 가볍게 벌점을 줘 같은 조건이면 한 권역으로
+ * 뭉친 조합이 이기게 하되, 적재율·시간창 같은 더 급한 제약은 그대로 우선한다.
+ * 3순위는 마감 임박 배송지 포함 여부(§6.1).
  */
 function scoreCluster(
   points: DeliveryPoint[],
@@ -425,8 +450,9 @@ function scoreCluster(
 ): number {
   const idleCapacity = capacity > 0 ? 1 - boxes / capacity : 1;
   const distanceCost = (sim.driveKm + 1.5 * sim.homeKm) / Math.max(1, boxes);
+  const regionSpread = new Set(points.map(regionKeyOf)).size - 1;
   const priorityBonus = points.reduce((s, p) => s + priorityOf(p), 0);
-  return idleCapacity + 0.5 * distanceCost - 0.05 * priorityBonus;
+  return idleCapacity + 0.5 * distanceCost + 0.15 * regionSpread - 0.05 * priorityBonus;
 }
 
 // ─────────────────────────────────────────────────────────────
