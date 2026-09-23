@@ -312,9 +312,19 @@ function growCluster(
   const large = isLargeVehicle(vehicle);
 
   if (seed.boxes > vehicle.최대수량) return null;
+  if (vehicle.palletLimit != null && seed.pallets != null && seed.pallets > vehicle.palletLimit) {
+    return null;
+  }
 
   const chosen: DeliveryPoint[] = [seed];
   let boxes = seed.boxes;
+  /**
+   * R-19 — 파렛트 누적. 담긴 배송지 중 하나라도 파렛트수를 모르면(`pallets === null`)
+   * 그 뒤로는 누적값을 신뢰할 수 없으므로 더 이상 이 제약으로 막지 않는다
+   * (`vehicle.palletLimit`이 있는 마스터가 아직 없어 지금은 항상 비활성이다 — OI-17).
+   */
+  let pallets = seed.pallets ?? 0;
+  let palletsKnown = seed.pallets !== null;
   let earlyUsed = ctx.earlySet.has(seed.id) ? 1 : 0;
 
   let sim = simulateTrip(ctx.centerGeo, chosen.map(toSimStop), ctx.endGeo, ctx.departAt);
@@ -338,6 +348,15 @@ function growCluster(
        * 이 줄이 없으면 30박스짜리가 1,000박스짜리에 얹혀 10톤 차로 나간다.
        */
       if (large && !chosen.every((x) => isSameSite(x, c))) return false;
+      /** R-19 — 차량 파렛트 상한. 누적치를 아직 신뢰할 수 있을 때만(palletsKnown) 검사한다 */
+      if (
+        vehicle.palletLimit != null &&
+        palletsKnown &&
+        c.pallets !== null &&
+        pallets + c.pallets > vehicle.palletLimit
+      ) {
+        return false;
+      }
       if (ctx.secondTripMinDeadline !== null && !allowedOnSecondTrip(c, ctx.secondTripMinDeadline))
         return false;
       // 같은 납품처의 다른 분할 조각은 한 회전에 같이 싣지 않는다
@@ -412,6 +431,8 @@ function growCluster(
 
     chosen.push(best);
     boxes += best.boxes;
+    if (best.pallets === null) palletsKnown = false;
+    else pallets += best.pallets;
     if (ctx.earlySet.has(best.id)) earlyUsed += 1;
     sim = candidateSim;
     rejected.add(best.id);
@@ -570,6 +591,10 @@ export function assignDispatch(
     const large = isLargeVehicle(vehicle);
     const candidates = pool.filter((p) => {
       if (p.boxes > vehicle.최대수량) return false;
+      // R-19 — 배송지 하나만으로도 차량 파렛트 상한을 넘으면 애초에 후보가 아니다
+      if (vehicle.palletLimit != null && p.pallets !== null && p.pallets > vehicle.palletLimit) {
+        return false;
+      }
       if (p.maxTonnage !== null && vehicle.tonnage > p.maxTonnage) return false;
       /**
        * R-17 + R-03 — 대형차는 1업체가 원칙이므로, 같은 장소에 짝이 없는 소량 업체는
@@ -674,6 +699,7 @@ export function assignDispatch(
       windows: p.time.windows,
       tags: p.tags,
       maxTonnage: p.maxTonnage,
+      pallets: p.pallets,
       hasExplicitStart: p.time.hasExplicitStart,
       contact: p.contact,
       출고장소코드: p.출고장소코드,
@@ -695,6 +721,7 @@ export function assignDispatch(
       windows: p.time.windows,
       tags: p.tags,
       maxTonnage: p.maxTonnage,
+      pallets: p.pallets,
       hasExplicitStart: p.time.hasExplicitStart,
       contact: p.contact,
       출고장소코드: p.출고장소코드,
@@ -734,6 +761,7 @@ function diagnose(
     windows: p.time.windows,
     tags: p.tags,
     maxTonnage: p.maxTonnage,
+    pallets: p.pallets,
     hasExplicitStart: p.time.hasExplicitStart,
     contact: p.contact,
     출고장소코드: p.출고장소코드,

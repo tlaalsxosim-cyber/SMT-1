@@ -107,6 +107,7 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
     { header: "주소", key: "address", width: 46 },
     { header: "출고창고", key: "warehouse", width: 18 },
     { header: "박스\n수량", key: "boxes", width: 8 },
+    { header: "예상\n파렛트수", key: "pallets", width: 9 },
     { header: "납품시간\n(원문)", key: "timeRaw", width: 22 },
     { header: "납품시간\n(해석)", key: "windows", width: 26 },
     { header: "TMAP\n도착예정", key: "arrive", width: 11 },
@@ -133,6 +134,7 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
         address: stop.address,
         warehouse: stop.출고장소 || "-",
         boxes: stop.boxes,
+        pallets: stop.pallets ?? "-",
         timeRaw: stop.timeRaw || "-",
         windows: formatWindows(stop.windows),
         arrive: hhmm(stop.arriveAt),
@@ -159,6 +161,9 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
       }`,
       warehouse: "",
       boxes: trip.boxes,
+      pallets: trip.stops.every((s) => s.pallets !== null)
+        ? trip.stops.reduce((s, x) => s + (x.pallets ?? 0), 0)
+        : "-",
       timeRaw: v ? `적재범위 ${v.최소수량}~${v.최대수량}` : "",
       windows: `적재율 ${(trip.loadRate * 100).toFixed(0)}%`,
       arrive: "",
@@ -175,7 +180,7 @@ function buildDispatchSheet(wb: ExcelJS.Workbook, input: ExportInput): void {
   }
 
   if (byDriver.length === 0) ws.addRow({ driver: "배차된 회전이 없습니다" });
-  ws.autoFilter = { from: "A1", to: "O1" };
+  ws.autoFilter = { from: "A1", to: "P1" };
 }
 
 // ─────────────────────────────────────────────────────────────

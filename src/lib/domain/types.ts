@@ -199,6 +199,13 @@ export interface DeliveryPoint {
   splitIndex?: number;
   /** 분할 조각이 배정된 차량 id — 이 차량의 회전에서만 후보가 된다 (R-06, 다른 차량으로 넘기지 않음) */
   splitVehicleId?: string;
+  /** 품번별 수량 — 파렛트수 계산용 (R-19). 품목마다 파렛트 적재수량이 다르므로 박스 합계만으로는 계산할 수 없다 */
+  items: { 품번: string; boxes: number }[];
+  /**
+   * 예상 파렛트수 (R-19). 품목 중 하나라도 파렛트 마스터에서 못 찾으면 전체를 `null`(미상)로
+   * 둔다 — 모르면 제약을 걸지 않는 쪽이 안전하다(`siteKey`와 같은 원칙).
+   */
+  pallets: number | null;
 }
 
 export interface ShipmentParseResult {
@@ -230,6 +237,21 @@ export interface Vehicle {
   도착지: string;
   cleanArrival: string;
   arrivalGeo?: GeoResult;
+  /**
+   * 차량 최대 파렛트 수 (R-19) — **선택 컬럼**. 차량 마스터에 `파렛트상한` 컬럼이
+   * 없으면 `null`이며, 이 경우 R-19 제약은 적용되지 않는다(OI-17, 현업 확인 필요).
+   */
+  palletLimit?: number | null;
+}
+
+/** 파렛트 적재 기준 마스터 1행 (R-19) */
+export interface PalletSpec {
+  품번: string;
+  품명: string;
+  /** N11형 파렛트 1개당 적재수량. 정보가 없으면 null */
+  n11: number | null;
+  /** N12형 파렛트 1개당 적재수량. 정보가 없으면 null */
+  n12: number | null;
 }
 
 /** 업로드 즉시 표시하는 파생 지표 (FR-07) */
@@ -283,6 +305,8 @@ export interface Stop {
   tags: DeliveryTag[];
   /** 차량 톤수 상한 (R-10). 제약이 없으면 null */
   maxTonnage: number | null;
+  /** 예상 파렛트수 (R-19). 계산할 수 없으면 null */
+  pallets: number | null;
   /** 원문에 시작 시각이 명시되어 있었는지 (R-08 startBy9 판정용) */
   hasExplicitStart: boolean;
   timeRaw: string;
@@ -341,6 +365,8 @@ export interface UnassignedItem {
   windows?: TimeWindow[];
   tags?: DeliveryTag[];
   maxTonnage?: number | null;
+  /** 예상 파렛트수 (R-19). 계산할 수 없으면 null */
+  pallets?: number | null;
   hasExplicitStart?: boolean;
   contact?: string | null;
   /** 출고장소코드 (BA열) — 2800(평택센터)이면 대성, 그 외(컬럼 없음 포함)는 일성 */

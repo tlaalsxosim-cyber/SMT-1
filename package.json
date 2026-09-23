@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test:watch": "vitest",
     "compare": "tsx --tsconfig tsconfig.scripts.json scripts/compare-rules.ts",
-    "start-check": "tsx --tsconfig tsconfig.scripts.json scripts/start-time-check.ts"
+    "start-check": "tsx --tsconfig tsconfig.scripts.json scripts/start-time-check.ts",
+    "gen:pallet-spec": "tsx --tsconfig tsconfig.scripts.json scripts/generate-pallet-spec.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",

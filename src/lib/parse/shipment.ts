@@ -10,6 +10,7 @@
  */
 
 import { EXPECTED_STOCK_UNIT, EXPECTED_WAREHOUSE } from "@/lib/domain/constants";
+import { computePalletUsage } from "@/lib/domain/pallet";
 import type {
   DeliveryPoint,
   ExcludedRow,
@@ -188,7 +189,8 @@ export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
     timeColumns: Set<string>;
     units: Set<string>;
     warehouses: Set<string>;
-    itemNames: Set<string>;
+    /** 품번 → 합산 재고단위수량 (R-19 파렛트수 계산용) */
+    items: Map<string, number>;
     siteCodes: Set<string>;
     siteNames: Set<string>;
   }
@@ -223,7 +225,7 @@ export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
         timeColumns: new Set(),
         units: new Set(),
         warehouses: new Set(),
-        itemNames: new Set(),
+        items: new Map(),
         siteCodes: new Set(),
         siteNames: new Set(),
       };
@@ -250,8 +252,9 @@ export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
     const wh = str(rec["출고창고"] as never);
     if (wh) b.warehouses.add(wh);
 
-    const item = str(rec["품명"] as never);
-    if (item) b.itemNames.add(item);
+    // 품번별 수량 누적 (R-19) — 품목마다 파렛트 적재수량이 다르므로 박스 합계만으로는 계산할 수 없다
+    const 품번 = str(rec["품번"] as never);
+    if (품번) b.items.set(품번, (b.items.get(품번) ?? 0) + (num(rec["재고단위수량"] as never) ?? 0));
 
     // 출고장소코드 (BA열) — 출고 창고 주소지 마스터의 조인 키 (FR-54)
     const siteCode = str(rec["출고장소코드"] as never);
@@ -400,6 +403,8 @@ export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
       });
     }
 
+    const items = [...b.items].map(([품번, boxes]) => ({ 품번, boxes }));
+
     points.push({
       id,
       raw납품처: b.raw납품처,
@@ -416,6 +421,8 @@ export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
       maxTonnage,
       출고장소코드: [...b.siteCodes][0] ?? null,
       출고장소: [...b.siteNames][0] ?? null,
+      items,
+      pallets: computePalletUsage(items).count,
     });
   }
 

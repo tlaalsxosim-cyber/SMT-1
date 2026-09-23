@@ -786,6 +786,7 @@ function buildTrip(
       boxes: p.boxes,
       tags: p.tags,
       maxTonnage: p.maxTonnage,
+      pallets: p.pallets,
       hasExplicitStart: p.time.hasExplicitStart,
       timeRaw: p.time.columnRaw ?? p.parsedName.conditionText ?? "",
       windows: p.time.windows,

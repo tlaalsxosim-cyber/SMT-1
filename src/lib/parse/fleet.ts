@@ -119,6 +119,8 @@ export function buildFleetResult(table: SheetTable): FleetParseResult {
       최대업체수,
       도착지,
       cleanArrival: cleanAddress(도착지),
+      // 선택 컬럼 (R-19) — 없으면 num()이 null을 돌려주고 R-19 제약은 적용되지 않는다 (OI-17)
+      palletLimit: num(rec["파렛트상한"]),
     });
   });
 

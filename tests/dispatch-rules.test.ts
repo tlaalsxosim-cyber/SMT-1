@@ -21,7 +21,8 @@ function point(
   boxes: number,
   address: string,
   geo: GeoPoint,
-  region = "용인"
+  region = "용인",
+  pallets: number | null = null
 ): DeliveryPoint {
   return {
     id: `${company}|${address}`,
@@ -59,6 +60,8 @@ function point(
     },
     tags: [],
     maxTonnage: null,
+    items: [],
+    pallets,
     geo: { ...geo, source: "demo", queriedAddress: address },
   };
 }
@@ -77,6 +80,7 @@ function vehicle(over: Partial<Vehicle> = {}): Vehicle {
     도착지: "경기도 용인시 처인구 중부대로 1199",
     cleanArrival: "경기도 용인시 처인구 중부대로 1199",
     arrivalGeo: { lat: 37.2, lon: 127.2, source: "demo", queriedAddress: "용인" },
+    palletLimit: null,
     ...over,
   };
 }
@@ -241,6 +245,59 @@ describe("R-07 1순위 — 권역 우선, 거리는 권역 주변 근사 (현업
 
     expect(r.trips).toHaveLength(1);
     expect(r.trips[0].points.map((p) => p.parsedName.company).sort()).toEqual(["다른권역", "씨앗"]);
+  });
+});
+
+describe("R-19 — 차량 파렛트 상한 (요청 2026-09-23, OI-17 현업 확인 필요)", () => {
+  it("차량 마스터에 파렛트상한이 없으면(palletLimit: null) 파렛트 수가 많아도 제약이 없다", () => {
+    const p = point("씨앗", 100, "경기도 용인시 처인구 중부대로 1199", 용인, "용인", 999);
+    const v = vehicle({
+      최소수량: 50,
+      최대수량: 1000,
+      최소업체수: 1,
+      최대업체수: 2,
+      palletLimit: null,
+    });
+
+    const r = assignDispatch([p], [v], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(1);
+    expect(r.unassigned).toHaveLength(0);
+  });
+
+  it("palletLimit을 설정하면 합계가 넘는 조합을 배제한다", () => {
+    const a = point("A", 100, "경기도 용인시 처인구 중부대로 1199", 용인, "용인", 5);
+    const b = point("B", 100, "경기도 용인시 처인구 포곡로 234", 용인2, "용인", 5);
+    const v = vehicle({
+      최소수량: 50,
+      최대수량: 1000,
+      최소업체수: 1,
+      최대업체수: 2,
+      palletLimit: 5,
+    });
+
+    const r = assignDispatch([a, b], [v], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(1);
+    expect(r.trips[0].points).toHaveLength(1);
+    expect(r.trips[0].points[0].pallets).toBe(5);
+    expect(r.unassigned).toHaveLength(1);
+  });
+
+  it("배송지 파렛트수가 unresolved(null)면 그 배송지에는 제약을 걸지 않는다 — 모르면 막지 않는다", () => {
+    const p = point("미상품목업체", 100, "경기도 용인시 처인구 중부대로 1199", 용인, "용인", null);
+    const v = vehicle({
+      최소수량: 50,
+      최대수량: 1000,
+      최소업체수: 1,
+      최대업체수: 2,
+      palletLimit: 1,
+    });
+
+    const r = assignDispatch([p], [v], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(1);
+    expect(r.unassigned).toHaveLength(0);
   });
 });
 

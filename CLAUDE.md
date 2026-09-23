@@ -24,6 +24,7 @@ npm run report       # 배차 결과를 사람이 읽는 표로 출력 (테스�
 npm run probe        # 파서 결과를 실데이터로 덤프
 npm run compare      # 미확정 기준값이 배차 결과를 얼마나 바꾸는지 측정
 npm run start-check  # 납품 시작 시각 적용 결과 (등록값 유지 / 누락분 08:00)
+npm run gen:pallet-spec # docs/평택센터_파렛트적재기준.xlsx → src/lib/domain/pallet-spec.ts 재생성
 npm run drive-ui     # 설치된 Chrome으로 4개 탭 E2E 구동 + 스크린샷 (서버가 떠 있어야 함)
 ```
 
@@ -169,6 +170,18 @@ DB·ORM·파일 저장소가 없고, `localStorage`/`sessionStorage`/IndexedDB�
 `scoreCluster`에도 권역 가점을 넣어야 물리적 거리가 조금 유리하다고 권역 우선순위가 뒤집히지
 않습니다. 45km 하드 상한(R-07 본 규칙)은 그대로 유지되므로 권역이 갈려도 45km 이내면 여전히
 후보가 됩니다. 가중치 0.15는 현업 확정값이 아니라 임의로 고른 값입니다(OI-16).
+
+**파렛트수는 박스 합계가 아니라 품번별로 나눠 계산합니다(R-19, 요청 2026-09-23)** —
+`src/lib/domain/pallet.ts`의 `computePalletUsage`가 품번마다 파렛트 마스터의 적재수량으로
+올림 나눗셈한 뒤 더합니다. 품목마다 파렛트 1개에 실리는 수량이 다르므로(예: 새우살 80박스,
+닭가슴살 60박스), 배송지 전체 박스 합계를 평균 적재수량으로 나누면 틀립니다. 품목 중
+하나라도 파렛트 마스터에서 못 찾으면 그 배송지 전체 `pallets`를 `null`(미상)로 두고 R-19를
+걸지 않습니다 — `siteKey`와 같은 원칙으로, 모르면 막지 않는 쪽이 안전합니다.
+`src/lib/domain/pallet-spec.ts`의 `PALLET_SPEC_BY_CODE`는 `docs/평택센터_파렛트적재기준.xlsx`의
+스냅샷입니다(`WAREHOUSE_ADDRESS_BY_SITE_CODE`와 같은 방식 — 세션마다 업로드받지 않고 소스에
+내장) — 원본이 갱신되면 새 파일로 교체하고 `npm run gen:pallet-spec`으로 재생성하십시오.
+차량 마스터에 `파렛트상한` 컬럼이 없으면(현재 실데이터가 그렇다) R-19는 전혀 발동하지 않습니다
+(OI-17) — `acceptance.test.ts`/`pipeline.test.ts`가 그대로 통과하는 것으로 확인했습니다.
 
 **배차 보드 수동 조정은 서버 재계산 로직을 클라이언트에 복제해 둔 것입니다** —
 `src/lib/dispatch/manual-edit.ts`의 `recomputeTrip`이 `pipeline/run.ts`의 `buildTrip`과 똑같이

@@ -99,6 +99,7 @@ export function unassignedToStop(u: UnassignedItem): Stop {
     boxes: u.boxes,
     tags: u.tags ?? [],
     maxTonnage: u.maxTonnage ?? null,
+    pallets: u.pallets ?? null,
     hasExplicitStart: u.hasExplicitStart ?? false,
     timeRaw: u.timeRaw,
     windows: u.windows ?? [],
