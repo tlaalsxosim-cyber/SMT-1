@@ -90,12 +90,14 @@ describe("AC-04 시간창 구조화", () => {
     expect(withWindow).toHaveLength(46);
   });
 
-  it("불일치 6건 — 경계 불일치 2 + 컬럼 결손 4", () => {
+  it("불일치 7건 — 경계 불일치 3 + 컬럼 결손 4", () => {
+    // 스시마트: "오전" 마감을 11:30으로 좁히는 규칙 변경(2026-09-23)으로
+    // 컬럼값 "~12:00"과 어긋나 경계 불일치에 새로 추가됐다.
     const boundary = ship.points.filter((p) => p.time.mismatch === "boundary");
     const missing = ship.points.filter((p) => p.time.mismatch === "missing");
-    expect(boundary).toHaveLength(2);
+    expect(boundary).toHaveLength(3);
     expect(missing).toHaveLength(4);
-    expect(boundary.length + missing.length).toBe(6);
+    expect(boundary.length + missing.length).toBe(7);
   });
 
   it("컬럼 결손 4곳은 삼성웰스토리·신의유통·원앤원·지키미에프에스", () => {

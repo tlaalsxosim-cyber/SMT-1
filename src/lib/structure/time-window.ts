@@ -200,7 +200,9 @@ function parseSegment(segRaw: string): SegmentResult {
 
   if (!t) {
     // 숫자 없는 표현
-    if (/오전/.test(seg)) return { windows: deadlineWindow(12 * 60), explicitStart: false };
+    // "오전일찍"/"최대한오전일찍"은 "오전"보다 이른 마감으로 본다 — 현업 확정(2026-09-23)
+    if (/오전일찍/.test(seg)) return { windows: deadlineWindow(10 * 60 + 30), explicitStart: false };
+    if (/오전/.test(seg)) return { windows: deadlineWindow(11 * 60 + 30), explicitStart: false };
     if (/오후/.test(seg)) {
       return { windows: [{ start: 12 * 60, end: 18 * 60 }], explicitStart: true };
     }
