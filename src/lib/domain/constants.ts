@@ -203,6 +203,17 @@ export const ADDRESS_NOISE_PATTERNS: RegExp[] = [
 ];
 
 /**
+ * 중량 기준 우선 분류 (R-21, 요청 2026-09-23)
+ *
+ * 규격란 중량이 정확히 이 값(kg)인 품목의 박스 수 합계가 `HEAVY_SPEC_MIN_BOXES` 이상인
+ * 배송지는 지입 배차 대상에서 아예 빼고 미배차·일성으로 분류한다 — R-18(수도권외)과
+ * 같은 "제외" 방식이다. 2026-09-15 실데이터 예: 동우참프레(20KG 규격 100박스)가
+ * 이 규칙에 해당한다.
+ */
+export const HEAVY_SPEC_KG = 20;
+export const HEAVY_SPEC_MIN_BOXES = 50;
+
+/**
  * 표준 파렛트 유형 (R-19 / OI-18 미확정)
  *
  * 파렛트 적재 기준 마스터(`docs/평택센터_파렛트적재기준.xlsx`, 363품목)에는 N11형·N12형이

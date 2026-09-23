@@ -9,7 +9,13 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { assignDispatch, isLargeVehicle, isSameSite, isSouthOfMetro } from "@/lib/dispatch/assign";
+import {
+  assignDispatch,
+  isHeavyOverweight,
+  isLargeVehicle,
+  isSameSite,
+  isSouthOfMetro,
+} from "@/lib/dispatch/assign";
 import { METRO_SOUTH_LIMIT_LAT } from "@/lib/domain/constants";
 import type { DeliveryPoint, GeoPoint, Vehicle } from "@/lib/domain/types";
 import { cleanAddress, siteKey } from "@/lib/structure/delivery-name";
@@ -499,5 +505,63 @@ describe("R-20 — 같은 주소는 무조건 같은 회전 (요청 2026-09-23)"
     const assignedBoxes = r.trips.flatMap((t) => t.points).reduce((s, p) => s + p.boxes, 0);
     const unassignedBoxes = r.unassigned.reduce((s, u) => s + u.boxes, 0);
     expect(assignedBoxes + unassignedBoxes).toBe(1373 + 50);
+  });
+});
+
+describe("R-21 — 규격 중량 20kg 품목 50박스 이상은 미배차·일성 (요청 2026-09-23)", () => {
+  it("20kg 품목 50박스 이상이면 지입 배차에서 제외되고 미배차·일성으로 분류된다 (동우참프레 회귀)", () => {
+    const p = {
+      ...point("동우참프레", 60, "인천광역시 서구 원창로89번길 4(원창동)", { lat: 37.51, lon: 126.68 }),
+      items: [{ 품번: "P-정육편육", boxes: 60, spec: "20KG (10KG*2BAG)" }],
+    };
+
+    expect(isHeavyOverweight(p)).toBe(true);
+
+    const r = assignDispatch([p], [vehicle()], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(0);
+    expect(r.unassigned).toHaveLength(1);
+    expect(r.unassigned[0].reason).toBe("중량초과");
+    expect(r.unassigned[0].siteGroup).toBe("일성");
+    expect(r.issues.some((i) => i.code === "R-21" && i.level === "info")).toBe(true);
+  });
+
+  it("50박스 미만이면 정상 배차된다", () => {
+    const p = {
+      ...point("소량냉동육", 40, "경기도 용인시 처인구 중부대로 1199", 용인),
+      items: [{ 품번: "P-소량", boxes: 40, spec: "20KG (10KG*2BAG)" }],
+    };
+
+    expect(isHeavyOverweight(p)).toBe(false);
+
+    const r = assignDispatch([p], [vehicle({ 최소수량: 10, 최소업체수: 1 })], { centerGeo: CENTER });
+
+    expect(r.trips).toHaveLength(1);
+    expect(r.unassigned).toHaveLength(0);
+  });
+
+  it("20kg이 아닌 다른 중량 품목의 박스는 합산하지 않는다", () => {
+    const p = {
+      ...point("혼합품목업체", 70, "경기도 용인시 처인구 중부대로 1199", 용인),
+      items: [
+        { 품번: "P-20kg", boxes: 30, spec: "20KG (10KG*2BAG)" },
+        { 품번: "P-10kg", boxes: 40, spec: "10KG(1KG*10BAGS)/BOX" },
+      ],
+    };
+
+    // 20kg 품목만 보면 30박스로 기준(50) 미달 — 나머지 40박스는 10kg이라 합산하지 않는다
+    expect(isHeavyOverweight(p)).toBe(false);
+  });
+
+  it("20kg 품목이 여러 줄로 나뉘어 있어도 합산해서 기준을 넘는지 본다", () => {
+    const p = {
+      ...point("분할입고업체", 55, "경기도 용인시 처인구 중부대로 1199", 용인),
+      items: [
+        { 품번: "P-20kg-a", boxes: 30, spec: "20KG (10KG*2BAG)" },
+        { 품번: "P-20kg-b", boxes: 25, spec: "20KG(2BAG)" },
+      ],
+    };
+
+    expect(isHeavyOverweight(p)).toBe(true);
   });
 });

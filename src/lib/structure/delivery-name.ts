@@ -183,6 +183,19 @@ export function siteKey(주소: string): string {
   return head.replace(/\s+/g, "");
 }
 
+/**
+ * 규격란에서 중량(kg)을 추출한다 (R-21) — `10KG(1KG*10BAGS)/BOX_...` → 10,
+ * `20KG (10KG*2BAG)` → 20. 규격 원문은 항상 맨 앞에 중량 토큰이 온다(2026-09-15
+ * 실데이터 304행 전량 확인). 못 찾으면 null.
+ */
+export function extractSpecWeightKg(spec: string | null | undefined): number | null {
+  if (!spec) return null;
+  const m = /^\s*(\d+(?:\.\d+)?)\s*KG/i.exec(spec);
+  if (!m) return null;
+  const v = Number(m[1]);
+  return Number.isFinite(v) ? v : null;
+}
+
 /** 비고(건)에서 박스 수를 추출한다 — `ok/50박스` → [50] (§5.3-(5) 교차 검증) */
 export function extractMemoBoxes(memo: string | null | undefined): number[] {
   if (!memo) return [];

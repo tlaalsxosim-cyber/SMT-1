@@ -200,6 +200,20 @@ DB·ORM·파일 저장소가 없고, `localStorage`/`sessionStorage`/IndexedDB�
 "최소한 해를 끼치지 않는다"만 확인했고, 하드 묶기 자체는 `dispatch-rules.test.ts`의 합성
 데이터로만 고정돼 있습니다.
 
+**중량 기준 우선 분류(R-21)는 배송지 전체 박스가 아니라 20kg 품목 박스만 봅니다
+(요청 2026-09-23)** — `assign.ts`의 `isHeavyOverweight`가 `p.items`를 순회하며
+`extractSpecWeightKg(item.spec)`이 정확히 `HEAVY_SPEC_KG`(20)인 품목의 박스만 더해
+`HEAVY_SPEC_MIN_BOXES`(50) 이상인지 봅니다. 같은 배송지에 10kg·15kg 품목이 섞여 있어도
+그 박스는 더하지 않습니다 — 무거운 품목 자체가 문제라는 뜻이지 배송지 총량이 문제가
+아니기 때문입니다. `extractSpecWeightKg`(`delivery-name.ts`)는 규격 문자열 **맨 앞**
+토큰만 읽습니다(`^\d+(?:\.\d+)?\s*KG`) — 뒤쪽 어딘가에 "20KG"가 나온다고 매칭하면
+"120KG"의 "20KG" 부분처럼 오탐합니다. R-18보다 먼저 걷어 내는 "우선 분류"라 두 사유에
+모두 해당하는 배송지는 R-21 사유(「중량초과」)가 남습니다. 운송업체 구분은
+`autoSiteGroup(출고장소코드)`를 거치지 않고 **일성**으로 고정합니다. 2026-09-15 실데이터의
+동우참프레(20KG 규격 100박스)가 이 규칙으로 실제로 회전에서 빠집니다 —
+`pipeline.test.ts`가 이 실사례를 회귀 고정합니다(R-19·R-20과 달리 이 규칙은 실데이터에서
+진짜로 동작을 바꿉니다).
+
 **배차 보드 수동 조정은 서버 재계산 로직을 클라이언트에 복제해 둔 것입니다** —
 `src/lib/dispatch/manual-edit.ts`의 `recomputeTrip`이 `pipeline/run.ts`의 `buildTrip`과 똑같이
 `simulateTrip` + `applyWaiting`을 조합해 방문 순서·도착시각·거리를 다시 계산합니다. 두 곳 다

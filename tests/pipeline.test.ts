@@ -372,3 +372,23 @@ describe("R-18 천안 이남은 지입 배차에서 제외", () => {
     expect(warn!.message).toContain("공차");
   });
 });
+
+describe("R-21 규격 중량 20kg 품목 50박스 이상은 미배차·일성 (요청 2026-09-23)", () => {
+  it("동우참프레(20KG 규격 100박스)는 사유 「중량초과」·일성으로 기타에 남는다", () => {
+    const u = out.unassigned.find((x) => x.company === "동우참프레");
+    expect(u).toBeDefined();
+    expect(u!.reason).toBe("중량초과");
+    expect(u!.siteGroup).toBe("일성");
+    expect(out.trips.flatMap((t) => t.stops).some((s) => s.company === "동우참프레")).toBe(false);
+  });
+
+  it("제외한 물량도 총량에 그대로 남는다 (R-12)", () => {
+    expect(out.assignedBoxes + out.unassignedBoxes).toBe(totalBoxes);
+  });
+
+  it("제외 사실을 정보 이슈로 남긴다", () => {
+    const issue = out.issues.find((i) => i.code === "R-21");
+    expect(issue).toBeDefined();
+    expect(issue!.level).toBe("info");
+  });
+});

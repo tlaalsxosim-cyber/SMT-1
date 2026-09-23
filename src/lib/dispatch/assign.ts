@@ -4,7 +4,8 @@
  * TMAP은 "차량 한 대 안의 방문 순서"만 정한다. **어느 차량이 어디를 가는가**는 여기서 정한다.
  *
  * 알고리즘 개요
- *   1. 전처리 — 좌표 없는 배송지 제외(R-13), 다회전 차량 전용 분할(R-06),
+ *   1. 전처리 — 좌표 없는 배송지 제외(R-13), 중량 기준 우선 제외(R-21),
+ *      수도권 외 제외(R-18), 다회전 차량 전용 분할(R-06),
  *      같은 주소 배송지 하드 묶음(R-20), 조기납품 판정(R-08)
  *   2. 회전 슬롯 생성 — 적재 상한이 큰 차량부터, 같은 차량은 회전 순서대로
  *   3. 슬롯마다 모든 후보를 씨앗으로 삼아 클러스터를 키워 보고 가장 효율적인 조합을 채택
@@ -27,6 +28,8 @@ import {
   autoSiteGroup,
   DEFAULT_DEPART_MINUTES,
   EARLY_DELIVERY_RULES,
+  HEAVY_SPEC_KG,
+  HEAVY_SPEC_MIN_BOXES,
   LARGE_VEHICLE_TONNAGE,
   MAX_CLUSTER_SPREAD_KM,
   METRO_SOUTH_LIMIT_LAT,
@@ -43,7 +46,7 @@ import type {
   UnassignedReason,
   Vehicle,
 } from "@/lib/domain/types";
-import { normalizeRegion, siteKey } from "@/lib/structure/delivery-name";
+import { extractSpecWeightKg, normalizeRegion, siteKey } from "@/lib/structure/delivery-name";
 import { earliestDeadline, latestDeadline, windowSpan } from "@/lib/structure/time-window";
 import { distKm } from "./distance";
 import { simulateTrip, type SimResult, type SimStop } from "./feasibility";
@@ -322,6 +325,19 @@ export function isSameSite(a: DeliveryPoint, b: DeliveryPoint): boolean {
  */
 export function isSouthOfMetro(p: DeliveryPoint): boolean {
   return p.geo ? p.geo.lat < METRO_SOUTH_LIMIT_LAT : false;
+}
+
+/**
+ * 중량 기준 우선 분류 대상인지 (R-21, 요청 2026-09-23) — 지입 배차에서 제외할 대상인지.
+ * 규격 중량이 정확히 `HEAVY_SPEC_KG`인 품목의 박스 수를 배송지 안에서 합산해
+ * `HEAVY_SPEC_MIN_BOXES` 이상이면 대상이다. 같은 배송지에 다른 중량 품목이 섞여 있어도
+ * 그 박스는 더하지 않는다 — 무거운 품목만 문제라는 뜻이므로.
+ */
+export function isHeavyOverweight(p: DeliveryPoint): boolean {
+  const heavyBoxes = p.items
+    .filter((i) => extractSpecWeightKg(i.spec) === HEAVY_SPEC_KG)
+    .reduce((s, i) => s + i.boxes, 0);
+  return heavyBoxes >= HEAVY_SPEC_MIN_BOXES;
 }
 
 /** §6.1 배차 우선순위 — 시간창이 좁고 마감이 이른 배송지를 먼저 잡는다 */
@@ -619,13 +635,35 @@ export function assignDispatch(
   const geoOk = allPoints.filter((p) => p.geo);
 
   /**
+   * R-21 — 규격 중량이 20kg인 품목이 50박스 이상이면 **지입 배차 대상에서 아예 뺀다**
+   * (요청 2026-09-23). "우선 분류"이므로 R-18보다 먼저 걷어 낸다 — 두 사유에 모두
+   * 해당하는 배송지가 있어도 R-21 사유가 남는다. 물량은 버리지 않고 사유 「중량초과」로
+   * 기타에 남기고, 운송업체 구분은 `출고장소코드`와 무관하게 **일성**으로 고정한다.
+   */
+  const heavyExcluded = geoOk.filter(isHeavyOverweight);
+  const notHeavy = geoOk.filter((p) => !isHeavyOverweight(p));
+
+  if (heavyExcluded.length > 0) {
+    issues.push({
+      level: "info",
+      code: "R-21",
+      message: `중량 20kg 품목 50박스 이상 ${heavyExcluded.length}곳 · ${heavyExcluded
+        .reduce((s, p) => s + p.boxes, 0)
+        .toLocaleString()}박스를 지입 배차에서 제외했습니다 — 미배차·일성으로 분류합니다`,
+      detail: heavyExcluded
+        .map((p) => `${p.parsedName.company}(${p.parsedName.region} ${p.boxes.toLocaleString()}박스)`)
+        .join(", "),
+    });
+  }
+
+  /**
    * R-18 — 천안 이남은 **지입 배차 대상에서 아예 뺀다**(현업 확정 2026-09-16 2차).
    * 조합 탐색에 넣고 점수로 미루는 방식은 북쪽에 대안이 없을 때 그대로 배차돼 버린다.
    * 여기서 걷어 내야 대형차가 익산·청주로 내려가지 않는다. 물량은 버리지 않고
    * 사유 「수도권외」로 기타에 남겨 용차 판단으로 넘긴다(R-12).
    */
-  const southExcluded = geoOk.filter(isSouthOfMetro);
-  const metroPoints = geoOk.filter((p) => !isSouthOfMetro(p));
+  const southExcluded = notHeavy.filter(isSouthOfMetro);
+  const metroPoints = notHeavy.filter((p) => !isSouthOfMetro(p));
 
   if (southExcluded.length > 0) {
     issues.push({
@@ -814,6 +852,30 @@ export function assignDispatch(
       secondTripMinDeadline,
     })
   );
+
+  // R-21 제외 건 — 운송업체 구분은 출고장소코드와 무관하게 일성으로 고정한다
+  for (const p of heavyExcluded) {
+    unassigned.push({
+      pointId: p.id,
+      company: p.parsedName.company,
+      region: p.parsedName.region,
+      address: p.address,
+      boxes: p.boxes,
+      timeRaw: p.time.columnRaw ?? p.parsedName.conditionText,
+      reason: "중량초과",
+      note: `규격 중량 ${HEAVY_SPEC_KG}kg 품목이 ${HEAVY_SPEC_MIN_BOXES}박스 이상이라 지입 배차에서 제외했습니다 — 미배차·일성으로 분류합니다 (R-21)`,
+      geo: p.geo,
+      windows: p.time.windows,
+      tags: p.tags,
+      maxTonnage: p.maxTonnage,
+      pallets: p.pallets,
+      hasExplicitStart: p.time.hasExplicitStart,
+      contact: p.contact,
+      출고장소코드: p.출고장소코드,
+      출고장소: p.출고장소,
+      siteGroup: "일성",
+    });
+  }
 
   // R-18 제외 건 — 사유를 분명히 적어 용차 판단으로 넘긴다
   for (const p of southExcluded) {

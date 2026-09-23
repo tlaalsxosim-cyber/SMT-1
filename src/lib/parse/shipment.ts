@@ -189,8 +189,8 @@ export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
     timeColumns: Set<string>;
     units: Set<string>;
     warehouses: Set<string>;
-    /** 품번 → 합산 재고단위수량 (R-19 파렛트수 계산용) */
-    items: Map<string, number>;
+    /** 품번 → 합산 재고단위수량·규격 (R-19 파렛트수 계산, R-21 중량 기준 분류용) */
+    items: Map<string, { boxes: number; spec: string | null }>;
     siteCodes: Set<string>;
     siteNames: Set<string>;
   }
@@ -252,9 +252,16 @@ export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
     const wh = str(rec["출고창고"] as never);
     if (wh) b.warehouses.add(wh);
 
-    // 품번별 수량 누적 (R-19) — 품목마다 파렛트 적재수량이 다르므로 박스 합계만으로는 계산할 수 없다
+    // 품번별 수량·규격 누적 (R-19 파렛트수, R-21 중량 기준 분류) — 품목마다 값이 다르므로 박스 합계만으로는 계산할 수 없다
     const 품번 = str(rec["품번"] as never);
-    if (품번) b.items.set(품번, (b.items.get(품번) ?? 0) + (num(rec["재고단위수량"] as never) ?? 0));
+    if (품번) {
+      const prev = b.items.get(품번);
+      const rowBoxes = num(rec["재고단위수량"] as never) ?? 0;
+      b.items.set(품번, {
+        boxes: (prev?.boxes ?? 0) + rowBoxes,
+        spec: prev?.spec ?? str(rec["규격"] as never),
+      });
+    }
 
     // 출고장소코드 (BA열) — 출고 창고 주소지 마스터의 조인 키 (FR-54)
     const siteCode = str(rec["출고장소코드"] as never);
@@ -403,7 +410,7 @@ export function buildShipmentResult(rawTable: SheetTable): ShipmentParseResult {
       });
     }
 
-    const items = [...b.items].map(([품번, boxes]) => ({ 품번, boxes }));
+    const items = [...b.items].map(([품번, v]) => ({ 품번, boxes: v.boxes, spec: v.spec }));
 
     points.push({
       id,
